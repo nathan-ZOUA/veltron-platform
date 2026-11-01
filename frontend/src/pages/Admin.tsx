@@ -85,6 +85,15 @@ export default function Admin() {
     payout_method: "orange_money",
     payout_number: "",
     payout_name: "Nathan Zoua (Propriétaire VELTRON)",
+    payout_channels: {
+      bank_name: "",
+      bank_iban: "",
+      bank_holder: "Nathan Zoua",
+      mtn_number: "",
+      mtn_name: "Nathan Zoua",
+      orange_number: "",
+      orange_name: "Nathan Zoua",
+    },
     current_password: "",
     new_password: "",
   });
@@ -112,6 +121,15 @@ export default function Admin() {
         payout_number: string;
         payout_name: string;
         password_customized: boolean;
+        payout_channels?: {
+          bank_name: string;
+          bank_iban: string;
+          bank_holder: string;
+          mtn_number: string;
+          mtn_name: string;
+          orange_number: string;
+          orange_name: string;
+        };
       };
     }>(`/platform/overview${filter ? `?status=${filter}` : ""}`, { realm: "platform" })
       .then((res) => {
@@ -123,11 +141,21 @@ export default function Admin() {
         if (res.commission_rate_bps) setCommissionRateBps(res.commission_rate_bps);
         if (res.owner_settings) {
           setPasswordCustomized(Boolean(res.owner_settings.password_customized));
+          const ch = res.owner_settings.payout_channels;
           setOwnerForm((prev) => ({
             ...prev,
             payout_method: res.owner_settings!.payout_method || "orange_money",
             payout_number: res.owner_settings!.payout_number || "",
             payout_name: res.owner_settings!.payout_name || "Nathan Zoua (Propriétaire VELTRON)",
+            payout_channels: {
+              bank_name: ch?.bank_name || prev.payout_channels.bank_name,
+              bank_iban: ch?.bank_iban || prev.payout_channels.bank_iban,
+              bank_holder: ch?.bank_holder || prev.payout_channels.bank_holder,
+              mtn_number: ch?.mtn_number || prev.payout_channels.mtn_number,
+              mtn_name: ch?.mtn_name || prev.payout_channels.mtn_name,
+              orange_number: ch?.orange_number || prev.payout_channels.orange_number,
+              orange_name: ch?.orange_name || prev.payout_channels.orange_name,
+            },
           }));
         }
       })
@@ -269,83 +297,179 @@ export default function Admin() {
             {notice && <div className="demo-note">{notice}</div>}
             {error && <p className="error">{error}</p>}
 
-            {/* Configuration personnalisée du Propriétaire : Vrai mot de passe & Compte de réception (0,5 %) */}
+            {/* Configuration personnalisée du Propriétaire : 3 Modes de Réception & Vrai mot de passe */}
             <form className="card form-grid" onSubmit={saveOwnerSettings}>
               <div>
                 <span className="badge">
                   {passwordCustomized ? "🔒 Mot de passe personnalisé actif" : "⚠️ Pensez à définir votre vrai mot de passe"}
                 </span>
                 <h2 className="subheading" style={{ margin: "6px 0 0" }}>
-                  🔐 Ma Partie Personnalisée : Mon Vrai Mot de Passe & Mon Compte de Réception (0,5 %)
+                  🔐 Espace Responsable VELTRON : Mes 3 Modes de Réception & Mon Vrai Mot de Passe
                 </h2>
                 <p className="muted" style={{ margin: "4px 0 0", fontSize: "var(--text-sm)" }}>
-                  Enregistrez votre mode de réception pour recevoir vos 0,5 % automatiques et définissez votre vrai mot de passe propriétaire personnel.
+                  Renseignez vos coordonnées pour les 3 canaux officiels de réception (Compte bancaire, MTN Mobile Money, Orange Money) pour recevoir automatiquement vos commissions de 0,5 % par voyage.
                 </p>
               </div>
 
-              <div className="search-grid">
-                <label className="field">
-                  <span className="field__label">Mon mode de réception (0,5 %)</span>
-                  <select
-                    className="select"
-                    value={ownerForm.payout_method}
-                    onChange={(e) => setOwnerForm({ ...ownerForm, payout_method: e.target.value })}
-                  >
-                    <option value="orange_money">🍊 Orange Money</option>
-                    <option value="mtn_momo">💛 MTN Mobile Money</option>
-                    <option value="wave">🌊 Wave</option>
-                    <option value="bank_transfer">🏦 Virement Bancaire / IBAN</option>
-                    <option value="card">💳 Carte / Stripe</option>
-                  </select>
-                </label>
+              {/* Mode Principal Actif */}
+              <label className="field">
+                <span className="field__label">⭐ Canal prioritaire de réception par défaut (0,5 %)</span>
+                <select
+                  className="select"
+                  value={ownerForm.payout_method}
+                  onChange={(e) => setOwnerForm({ ...ownerForm, payout_method: e.target.value })}
+                >
+                  <option value="bank_transfer">🏦 1. Virement Bancaire (IBAN / Compte en banque)</option>
+                  <option value="mtn_momo">💛 2. MTN Mobile Money</option>
+                  <option value="orange_money">🍊 3. Orange Money</option>
+                </select>
+              </label>
 
-                <label className="field">
-                  <span className="field__label">Numéro Mobile Money ou IBAN propriétaire</span>
-                  <input
-                    className="input"
-                    placeholder="+237 6... ou IBAN"
-                    value={ownerForm.payout_number}
-                    onChange={(e) => setOwnerForm({ ...ownerForm, payout_number: e.target.value })}
-                  />
-                </label>
-
-                <label className="field">
-                  <span className="field__label">Nom du titulaire du compte</span>
-                  <input
-                    className="input"
-                    value={ownerForm.payout_name}
-                    onChange={(e) => setOwnerForm({ ...ownerForm, payout_name: e.target.value })}
-                  />
-                </label>
+              {/* Canal 1 : Compte Bancaire */}
+              <div className="card form-grid" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong style={{ fontSize: "var(--text-base)" }}>🏦 Mode 1 : Compte Bancaire (Virement / IBAN)</strong>
+                  {ownerForm.payout_method === "bank_transfer" && <span className="badge">⭐ Actif par défaut</span>}
+                </div>
+                <div className="search-grid">
+                  <label className="field">
+                    <span className="field__label">Nom de la Banque</span>
+                    <input
+                      className="input"
+                      placeholder="Ex. Afriland First Bank / UBA / SGBC"
+                      value={ownerForm.payout_channels.bank_name}
+                      onChange={(e) => setOwnerForm({
+                        ...ownerForm,
+                        payout_channels: { ...ownerForm.payout_channels, bank_name: e.target.value }
+                      })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Numéro de Compte / IBAN / RIB</span>
+                    <input
+                      className="input mono"
+                      placeholder="CM21 10005 00001 12345678901 23"
+                      value={ownerForm.payout_channels.bank_iban}
+                      onChange={(e) => setOwnerForm({
+                        ...ownerForm,
+                        payout_channels: { ...ownerForm.payout_channels, bank_iban: e.target.value }
+                      })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Titulaire du compte bancaire</span>
+                    <input
+                      className="input"
+                      placeholder="Nathan Zoua"
+                      value={ownerForm.payout_channels.bank_holder}
+                      onChange={(e) => setOwnerForm({
+                        ...ownerForm,
+                        payout_channels: { ...ownerForm.payout_channels, bank_holder: e.target.value }
+                      })}
+                    />
+                  </label>
+                </div>
               </div>
 
-              <div className="search-grid">
-                <label className="field">
-                  <span className="field__label">Mot de passe actuel (pour changer de mot de passe)</span>
-                  <input
-                    className="input"
-                    type="password"
-                    placeholder="Laisser vide si inchangé"
-                    value={ownerForm.current_password}
-                    onChange={(e) => setOwnerForm({ ...ownerForm, current_password: e.target.value })}
-                  />
-                </label>
+              {/* Canal 2 : MTN Mobile Money */}
+              <div className="card form-grid" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong style={{ fontSize: "var(--text-base)" }}>💛 Mode 2 : MTN Mobile Money (MoMo)</strong>
+                  {ownerForm.payout_method === "mtn_momo" && <span className="badge">⭐ Actif par défaut</span>}
+                </div>
+                <div className="search-grid">
+                  <label className="field">
+                    <span className="field__label">Numéro MTN MoMo</span>
+                    <input
+                      className="input mono"
+                      placeholder="+237 670 00 00 00"
+                      value={ownerForm.payout_channels.mtn_number}
+                      onChange={(e) => setOwnerForm({
+                        ...ownerForm,
+                        payout_channels: { ...ownerForm.payout_channels, mtn_number: e.target.value }
+                      })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Nom complet enregistré sur la SIM MTN</span>
+                    <input
+                      className="input"
+                      placeholder="Nathan Zoua"
+                      value={ownerForm.payout_channels.mtn_name}
+                      onChange={(e) => setOwnerForm({
+                        ...ownerForm,
+                        payout_channels: { ...ownerForm.payout_channels, mtn_name: e.target.value }
+                      })}
+                    />
+                  </label>
+                </div>
+              </div>
 
-                <label className="field">
-                  <span className="field__label">Nouveau vrai mot de passe propriétaire (min. 8 caractères)</span>
-                  <input
-                    className="input"
-                    type="password"
-                    placeholder="Votre nouveau mot de passe secret"
-                    value={ownerForm.new_password}
-                    onChange={(e) => setOwnerForm({ ...ownerForm, new_password: e.target.value })}
-                  />
-                </label>
+              {/* Canal 3 : Orange Money */}
+              <div className="card form-grid" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong style={{ fontSize: "var(--text-base)" }}>🍊 Mode 3 : Orange Money (OM)</strong>
+                  {ownerForm.payout_method === "orange_money" && <span className="badge">⭐ Actif par défaut</span>}
+                </div>
+                <div className="search-grid">
+                  <label className="field">
+                    <span className="field__label">Numéro Orange Money</span>
+                    <input
+                      className="input mono"
+                      placeholder="+237 690 00 00 00"
+                      value={ownerForm.payout_channels.orange_number}
+                      onChange={(e) => setOwnerForm({
+                        ...ownerForm,
+                        payout_channels: { ...ownerForm.payout_channels, orange_number: e.target.value }
+                      })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Nom complet enregistré sur la SIM Orange</span>
+                    <input
+                      className="input"
+                      placeholder="Nathan Zoua"
+                      value={ownerForm.payout_channels.orange_name}
+                      onChange={(e) => setOwnerForm({
+                        ...ownerForm,
+                        payout_channels: { ...ownerForm.payout_channels, orange_name: e.target.value }
+                      })}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* Vrai mot de passe responsable */}
+              <div className="card form-grid" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+                <strong style={{ fontSize: "var(--text-base)" }}>🔒 Mon Vrai Mot de Passe Responsable</strong>
+                <div className="search-grid">
+                  <label className="field">
+                    <span className="field__label">Mot de passe actuel (pour valider le changement)</span>
+                    <input
+                      className="input"
+                      type="password"
+                      placeholder="Laisser vide si inchangé"
+                      value={ownerForm.current_password}
+                      onChange={(e) => setOwnerForm({ ...ownerForm, current_password: e.target.value })}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span className="field__label">Nouveau vrai mot de passe (min. 8 caractères)</span>
+                    <input
+                      className="input"
+                      type="password"
+                      placeholder="Votre nouveau mot de passe secret"
+                      value={ownerForm.new_password}
+                      onChange={(e) => setOwnerForm({ ...ownerForm, new_password: e.target.value })}
+                    />
+                  </label>
+                </div>
               </div>
 
               <div>
                 <button type="submit" className="btn">
-                  💾 Enregistrer mon compte & mon vrai mot de passe
+                  💾 Enregistrer mes 3 modes de réception & mon mot de passe
                 </button>
               </div>
             </form>

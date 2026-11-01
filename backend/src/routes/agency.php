@@ -361,6 +361,15 @@ route('GET', '/api/platform/overview', function () {
             'payout_method' => $ownerMethod,
             'payout_number' => $ownerNumber,
             'payout_name' => $ownerName,
+            'payout_channels' => [
+                'bank_name'     => get_platform_setting('owner_bank_name', ''),
+                'bank_iban'     => get_platform_setting('owner_bank_iban', ''),
+                'bank_holder'   => get_platform_setting('owner_bank_holder', ''),
+                'mtn_number'    => get_platform_setting('owner_mtn_number', ''),
+                'mtn_name'      => get_platform_setting('owner_mtn_name', ''),
+                'orange_number' => get_platform_setting('owner_orange_number', ''),
+                'orange_name'   => get_platform_setting('owner_orange_name', ''),
+            ],
             'password_customized' => get_platform_setting('password_customized', '0') === '1',
         ],
     ]);
@@ -373,12 +382,40 @@ route('POST', '/api/platform/account/update', function () {
 
     if (isset($in['payout_method']) || isset($in['payout_number']) || isset($in['payout_name'])) {
         $pm = strtolower(trim((string) ($in['payout_method'] ?? 'orange_money')));
-        if (!in_array($pm, ['orange_money', 'mtn_momo', 'wave', 'bank_transfer', 'card'], true)) $pm = 'orange_money';
+        if (!in_array($pm, ['orange_money', 'mtn_momo', 'bank_transfer'], true)) $pm = 'orange_money';
         $pn = str_in($in['payout_number'] ?? '', 80);
         $pname = str_in($in['payout_name'] ?? 'Nathan Zoua (Propriétaire VELTRON)', 120);
         set_platform_setting('owner_payout_method', $pm);
         set_platform_setting('owner_payout_number', $pn);
         set_platform_setting('owner_payout_name', $pname);
+    }
+
+    // 3 modes de réception du Propriétaire : Compte bancaire, MTN Mobile Money, Orange Money
+    if (isset($in['payout_channels']) && is_array($in['payout_channels'])) {
+        $ch = $in['payout_channels'];
+        $fields = [
+            'owner_bank_name'     => 120,
+            'owner_bank_iban'     => 80,
+            'owner_bank_holder'   => 120,
+            'owner_mtn_number'    => 40,
+            'owner_mtn_name'      => 120,
+            'owner_orange_number' => 40,
+            'owner_orange_name'   => 120,
+        ];
+        foreach ($fields as $key => $max) {
+            $short = substr($key, 6); // retire "owner_"
+            if (array_key_exists($short, $ch)) {
+                set_platform_setting($key, str_in($ch[$short] ?? '', $max));
+            }
+        }
+        // Le mode préféré pointe vers le numéro/IBAN correspondant
+        $pm = get_platform_setting('owner_payout_method', 'orange_money');
+        $num = match ($pm) {
+            'bank_transfer' => get_platform_setting('owner_bank_iban', ''),
+            'mtn_momo'      => get_platform_setting('owner_mtn_number', ''),
+            default         => get_platform_setting('owner_orange_number', ''),
+        };
+        set_platform_setting('owner_payout_number', $num);
     }
 
     $newPassword = (string) ($in['new_password'] ?? '');
