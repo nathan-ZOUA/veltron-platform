@@ -1,0 +1,744 @@
+/* ==========================================================================
+   VELTRON — FEUILLE DE STYLE RESPONSIVE UNIVERSELLE (TOUTES PAGES)
+   Adapte automatiquement l'application sur :
+   - Écrans ultra-petits (< 360px)
+   - Smartphones standards (360px - 480px)
+   - Grands smartphones & phablettes (481px - 640px)
+   - Tablettes (641px - 1024px)
+   - Écrans d'ordinateur (1025px - 1440px)
+   - Écrans géants & TV (> 1440px)
+   ========================================================================== */
+
+/* ---------- 1. RÈGLES GLOBALES, SÉCURITÉ ANTI-DÉBORDEMENT & TOUCH ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Conteneur fluide adaptatif avec marges respirantes */
+.container {
+  width: min(100% - clamp(14px, 4vw, 36px), var(--container, 1240px));
+  margin-inline: auto;
+}
+
+/* Typographie fluide respirante */
+h1, h2, h3, h4, h5, h6, p, span, a, strong {
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+.display-hero {
+  font-size: clamp(2rem, 7vw, 4.8rem) !important;
+  line-height: 1.12 !important;
+}
+
+.display-2xl {
+  font-size: clamp(1.75rem, 5.5vw, 3.2rem) !important;
+  line-height: 1.18 !important;
+}
+
+.display-xl {
+  font-size: clamp(1.4rem, 4.2vw, 2.3rem) !important;
+  line-height: 1.24 !important;
+}
+
+.display-lg {
+  font-size: clamp(1.2rem, 3.4vw, 1.8rem) !important;
+}
+
+.lead {
+  font-size: clamp(0.95rem, 2.4vw, 1.2rem) !important;
+  line-height: 1.55 !important;
+}
+
+/* Inputs & Formulaires tactiles (pas de zoom intempestif iOS) */
+input,
+select,
+textarea {
+  font-size: 16px !important;
+  max-width: 100%;
+}
+
+/* Boutons tactiles avec cible minimale ergonomique */
+.btn,
+.chip {
+  min-height: 42px;
+  touch-action: manipulation;
+}
+
+/* Tableaux et conteneurs avec défilement tactile fluide */
+.table-responsive,
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---------- 2. EN-TÊTE & NAVIGATION RESPONSIVE (PASSAGER & AGENCE) ---------- */
+.site-header {
+  height: auto !important;
+  min-height: var(--header-height, 68px);
+  padding-block: 8px;
+}
+
+.site-header__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.portal-pill {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  white-space: nowrap;
+}
+
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.menu-button {
+  display: none;
+}
+
+@media (max-width: 880px) {
+  .menu-button {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm, 8px);
+    background: var(--surface, rgba(255, 255, 255, 0.06));
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+    cursor: pointer;
+  }
+
+  .nav {
+    display: none !important;
+    position: absolute;
+    top: 100%;
+    inset-inline: 0;
+    background: var(--bg-elevated, #161824) !important;
+    border-bottom: 2px solid var(--border, rgba(255, 255, 255, 0.15));
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+    padding: 16px 20px;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    z-index: 100;
+  }
+
+  .nav.is-open {
+    display: flex !important;
+  }
+
+  .nav__link {
+    padding: 12px 14px !important;
+    border-radius: var(--radius-sm, 8px);
+    font-size: 0.95rem;
+  }
+
+  .security-chips-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .security-chip {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    border-radius: var(--radius-sm, 8px);
+  }
+}
+
+/* ---------- 3. PAGE GATEWAY (CHOIX PASSAGER VS AGENCE) ---------- */
+.gateway__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6, 24px);
+}
+
+@media (max-width: 960px) {
+  .gateway__cards {
+    grid-template-columns: 1fr !important;
+    gap: 20px;
+  }
+
+  .gateway__topbar {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding-block: 16px;
+  }
+
+  .gateway__center {
+    padding-block: 20px 32px;
+    gap: 24px;
+  }
+
+  .VisualCard--tall {
+    min-height: 380px !important;
+    padding: clamp(18px, 4vw, 28px) !important;
+  }
+
+  .VisualCard__pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .VisualCard__pills li {
+    font-size: 0.76rem;
+    padding: 3px 8px;
+  }
+
+  .gateway__footer {
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+  }
+}
+
+/* ---------- 4. PAGE D'ACCUEIL PASSAGER (HOME) ---------- */
+.service-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: var(--space-5, 20px);
+}
+
+@media (max-width: 640px) {
+  .hero {
+    min-height: auto !important;
+    padding-block: clamp(28px, 8vw, 60px) !important;
+  }
+
+  .hero__actions {
+    flex-direction: column !important;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .hero__actions .btn {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .ticker {
+    width: 100% !important;
+    padding: 14px !important;
+  }
+
+  .ticker__route {
+    gap: 10px;
+    font-size: 0.88rem;
+  }
+
+  .service-cards-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .steps {
+    gap: 16px;
+  }
+
+  .step {
+    gap: 12px;
+  }
+
+  .step__number {
+    width: 42px;
+    height: 42px;
+    font-size: 1rem;
+  }
+
+  .contact {
+    grid-template-columns: 1fr !important;
+    gap: 24px;
+  }
+
+  .contact__links a {
+    grid-template-columns: 85px 1fr auto !important;
+    font-size: 0.82rem;
+    padding-block: 10px;
+  }
+}
+
+/* ---------- 5. ANNUAIRE & PAGES AGENCES (AGENCIES & AGENCYPAGE) ---------- */
+.agency-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)) !important;
+  gap: var(--space-5, 20px) !important;
+}
+
+.country-filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.country-filter-bar .chips {
+  display: flex;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 6px;
+  gap: 6px;
+}
+
+.country-filter-bar .chips::-webkit-scrollbar {
+  display: none;
+}
+
+.country-filter-bar .chips .chip {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.country-select {
+  width: 100%;
+}
+
+/* Carte de voyage (Trip) */
+.trip {
+  padding: clamp(14px, 3.5vw, 22px) !important;
+}
+
+@media (max-width: 640px) {
+  .trip {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+
+  .trip__times {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .trip__buy {
+    width: 100%;
+  }
+
+  .trip__buy .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ---------- 6. RÉSERVATION & PLAN DES SIÈGES (TRIPBOOKING & SEATGRID) ---------- */
+.booking-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  gap: var(--space-6, 24px);
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .booking-layout {
+    grid-template-columns: 1fr !important;
+    gap: 20px;
+  }
+
+  .seat-panel {
+    position: static !important;
+    top: 0 !important;
+  }
+}
+
+/* Plan des sièges centré et tactile */
+.seat-map {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 6px !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.seat-row {
+  display: flex !important;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(4px, 1.4vw, 10px);
+  width: 100%;
+  max-width: 420px;
+}
+
+.seat {
+  width: clamp(34px, 8.5vw, 46px) !important;
+  height: clamp(34px, 8.5vw, 46px) !important;
+  min-width: 32px !important;
+  padding: 0 !important;
+  font-size: clamp(0.72rem, 2vw, 0.85rem) !important;
+  font-weight: 700 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px !important;
+}
+
+.seat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.82rem;
+}
+
+.pax {
+  padding: clamp(12px, 3.5vw, 20px) !important;
+}
+
+/* ---------- 7. BILLET DE TRANSPORT & QR CODE (TICKETPAGE & MYTICKETS) ---------- */
+.ticket {
+  width: 100%;
+  max-width: 620px;
+  margin-inline: auto;
+  padding: clamp(16px, 4vw, 32px) !important;
+}
+
+.ticket__route {
+  display: flex !important;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-block: 16px;
+}
+
+.ticket__body {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .ticket__body {
+    grid-template-columns: 1fr !important;
+    gap: 24px;
+  }
+
+  .ticket__qr {
+    margin: 12px auto;
+    text-align: center;
+  }
+
+  .ticket-actions {
+    flex-direction: column;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .ticket-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ---------- 8. SUIVI GPS TEMPS RÉEL (TRACKING) ---------- */
+.tracking-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 0.8fr);
+  gap: var(--space-6, 24px);
+  align-items: start;
+}
+
+.tracking-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+}
+
+@media (max-width: 960px) {
+  .tracking-layout {
+    grid-template-columns: 1fr !important;
+  }
+
+  .tracking-search {
+    flex-direction: column;
+  }
+
+  .tracking-search .input,
+  .tracking-search .btn {
+    width: 100% !important;
+  }
+
+  .route-map {
+    width: 100% !important;
+    height: auto !important;
+  }
+}
+
+/* ---------- 9. CONNEXION AGENCE & MODALE PIN 2FA (AGENCYLOGIN) ---------- */
+@media (max-width: 820px) {
+  .auth {
+    grid-template-columns: 1fr !important;
+    min-height: auto !important;
+  }
+
+  .auth__visual {
+    min-height: 180px !important;
+    padding: 24px 16px !important;
+  }
+
+  .auth__panel {
+    padding: 24px 16px !important;
+  }
+
+  .auth__form {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* ---------- 10. ESPACE AGENCE (AGENCYWORKSPACE & SES 12 ONGLETS) ---------- */
+.workspace-banner {
+  padding: clamp(14px, 3.5vw, 24px) !important;
+}
+
+.workspace-tabs {
+  display: flex !important;
+  gap: 6px !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: none !important;
+  padding-bottom: 6px !important;
+  margin-top: 14px;
+}
+
+.workspace-tabs::-webkit-scrollbar {
+  display: none !important;
+}
+
+.workspace-tabs .chip {
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  padding: 8px 14px !important;
+  font-size: 0.82rem !important;
+}
+
+.agency-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 24px;
+}
+
+@media (max-width: 1024px) {
+  .agency-layout {
+    grid-template-columns: 1fr !important;
+    gap: 20px;
+  }
+}
+
+/* KPI Grids partout */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .kpi-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+  }
+
+  .kpi-card {
+    padding: 12px 14px !important;
+  }
+
+  .kpi-card__value {
+    font-size: 1.45rem !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .kpi-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ---------- 11. GUICHET & EMBARQUEMENT (DESK) ---------- */
+.desk {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.desk-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 20px;
+}
+
+@media (max-width: 960px) {
+  .desk {
+    grid-template-columns: 1fr !important;
+    gap: 18px;
+  }
+
+  .desk__trips {
+    position: static !important;
+    display: flex !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none;
+    gap: 8px !important;
+    padding-bottom: 8px;
+  }
+
+  .desk__trips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .desk-trip {
+    flex-shrink: 0 !important;
+    min-width: 240px !important;
+  }
+
+  .desk-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px;
+  }
+
+  .call-row {
+    padding: 12px 10px;
+  }
+}
+
+/* ---------- 12. SUPERVISION PROPRIÉTAIRE (ADMIN) ---------- */
+@media (max-width: 768px) {
+  .search-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .chips {
+    gap: 6px;
+  }
+
+  .chips .btn,
+  .chips .chip {
+    font-size: 0.8rem;
+    padding: 6px 12px;
+  }
+}
+
+/* ---------- 13. WIZARD CRÉATION D'AGENCE (PARTNER) ---------- */
+.partner {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  min-height: calc(100vh - var(--header-height, 68px));
+}
+
+@media (max-width: 960px) {
+  .partner {
+    grid-template-columns: 1fr !important;
+    min-height: auto !important;
+  }
+
+  .partner__visual {
+    padding: 24px 16px !important;
+  }
+
+  .partner__form {
+    padding: 24px 16px !important;
+  }
+
+  .stepper {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .wizard-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .wizard-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ---------- 14. DISCUSSION D'ÉQUIPE CHIFFRÉE (AGENCYCHAT) ---------- */
+.chat-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 680px;
+  border-radius: var(--radius-lg, 20px);
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .chat-shell {
+    grid-template-columns: 1fr !important;
+    height: 75vh !important;
+  }
+
+  .chat-sidebar {
+    max-height: 140px !important;
+    overflow-y: auto !important;
+    border-inline-end: 0 !important;
+    border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  }
+
+  .chat-bubble {
+    max-width: 90% !important;
+  }
+
+  .chat-composer {
+    padding: 10px 12px !important;
+  }
+}
+
+/* ---------- 15. ÉCRANS GÉANTS (> 1440px) ---------- */
+@media (min-width: 1441px) {
+  .container {
+    max-width: 1520px;
+  }
+
+  .agency-layout {
+    grid-template-columns: 1fr 460px;
+  }
+
+  .service-cards-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}

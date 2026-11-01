@@ -83,3 +83,4 @@ if (!in_array('last_gps_at', $colsTrips, true)) {
 }
 
 echo "[migrate_v2] Terminé avec succès !\n";
+

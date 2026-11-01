@@ -1,4 +1,5 @@
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
 import Footer from "./Footer";
@@ -17,7 +18,13 @@ const ROLE_LABELS: Record<string, string> = {
 // Interface dédiée EXCLUSIVEMENT aux agences (totalement séparée de l'espace passager)
 export default function AgencyLayout() {
   const { agencySession, logoutAgency } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
 
   function handleLogout() {
     logoutAgency();
@@ -45,7 +52,7 @@ export default function AgencyLayout() {
             </Link>
           </div>
 
-          <nav className="nav" aria-label="Navigation Agence">
+          <nav className={menuOpen ? "nav is-open" : "nav"} aria-label="Navigation Agence">
             {!agencySession ? (
               <>
                 <NavLink to="/agence" end className={({ isActive }) => (isActive ? "nav__link is-active" : "nav__link")}>
@@ -59,7 +66,7 @@ export default function AgencyLayout() {
                 </NavLink>
               </>
             ) : (
-              <>
+              <div className="security-chips-group">
                 <span className="security-chip mono" title="Identifiant unique de votre agence">
                   ID {agencySession.agency.public_code}
                 </span>
@@ -69,14 +76,14 @@ export default function AgencyLayout() {
                 <span className="security-chip security-chip--e2ee" title="Session d'agence strictement isolée — échanges d'équipe directs">
                   🛡️ Agence Isolée
                 </span>
-              </>
+              </div>
             )}
           </nav>
 
           <div className="header-tools">
             {agencySession ? (
               <button type="button" className="btn btn--ghost header-auth" onClick={handleLogout}>
-                Verrouiller & Déconnexion
+                Déconnexion
               </button>
             ) : (
               <Link to="/agence/connexion" className="btn header-auth">
@@ -85,6 +92,17 @@ export default function AgencyLayout() {
             )}
             <LanguageSwitcher />
             <ThemeToggle />
+            <button
+              type="button"
+              className="btn btn--icon menu-button"
+              aria-label="Menu de navigation"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
           </div>
         </div>
       </header>
