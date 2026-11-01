@@ -116,12 +116,12 @@ route('POST', '/api/desk/tickets/{id}/action', function (array $p) {
             q('UPDATE tickets SET late_notice = ? WHERE id = ?', [$note, $k['id']]);
             break;
         case 'absent':
-            if (!in_array($s['role'], ['owner', 'manager', 'secretary'], true)) fail(403, 'forbidden', 'Action réservée à la secrétaire.');
+            if (!in_array($s['role'], ['owner', 'manager', 'secretary', 'staff'], true)) fail(403, 'forbidden', 'Action non autorisée.');
             if ($k['status'] !== 'valid') fail(409, 'bad_state', 'Billet non valide.');
-            q("UPDATE tickets SET status = 'no_show' WHERE id = ?", [$k['id']]);
+            q("UPDATE tickets SET status = 'no_show', late_notice = 'Signalé absent à l\'appel' WHERE id = ?", [$k['id']]);
             break;
         case 'undo':
-            if (!in_array($s['role'], ['owner', 'manager', 'secretary'], true)) fail(403, 'forbidden', 'Action réservée à la secrétaire.');
+            if (!in_array($s['role'], ['owner', 'manager', 'secretary', 'staff'], true)) fail(403, 'forbidden', 'Action non autorisée.');
             if (!in_array($k['status'], ['boarded', 'no_show'], true)) fail(409, 'bad_state', 'Rien à annuler.');
             try {
                 q("UPDATE tickets SET status = 'valid', boarded_at = NULL WHERE id = ?", [$k['id']]);

@@ -20,7 +20,7 @@ function route(string $method, string $pattern, callable $handler): void
     $ROUTES[] = [$method, $regex, $handler];
 }
 
-foreach (['catalog', 'auth', 'booking', 'services', 'desk', 'agency', 'agency_workspace', 'chat'] as $module) {
+foreach (['catalog', 'auth', 'booking', 'services', 'desk', 'agency', 'agency_workspace', 'chat', 'boarding'] as $module) {
     require __DIR__ . "/../src/routes/$module.php";
 }
 

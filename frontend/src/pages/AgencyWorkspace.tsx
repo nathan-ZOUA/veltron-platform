@@ -10,9 +10,11 @@ import AgencyChat from "./AgencyChat";
 import Avatar from "../components/Avatar";
 import SalesAnalyticsChart from "../components/SalesAnalyticsChart";
 import FleetLiveOverview from "../components/FleetLiveOverview";
+import BoardingCallWorkspace from "../components/BoardingCallWorkspace";
 
 type TabId =
   | "overview"
+  | "boarding"
   | "desk"
   | "fleet_live"
   | "trips"
@@ -33,7 +35,8 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { id: "overview", label: "📊 Vue d’ensemble", roles: ["owner", "manager"] },
-  { id: "desk", label: "🎫 Guichet & Embarquement", roles: ["owner", "manager", "secretary", "staff"] },
+  { id: "boarding", label: "📋 Appel des Passagers (Embarquement)", roles: ["owner", "manager", "staff"] },
+  { id: "desk", label: "🎫 Guichet (Vente & Billetterie)", roles: ["owner", "manager", "secretary"] },
   { id: "fleet_live", label: "🗺️ Flotte & GPS en Direct", roles: ["owner", "manager", "secretary", "accountant", "staff"] },
   { id: "trips", label: "🗓️ Voyages & Reports", roles: ["owner", "manager", "secretary"] },
   { id: "driver", label: "🚌 Espace Chauffeur", roles: ["driver", "owner", "manager"] },
@@ -93,7 +96,8 @@ export default function AgencyWorkspace() {
 
   const allowedTabs = useMemo(() => TABS.filter((t) => t.roles.includes(role)), [role]);
   const [tab, setTab] = useState<TabId>(() => {
-    if (role === "secretary" || role === "staff") return "desk";
+    if (role === "secretary") return "desk";
+    if (role === "staff") return "boarding";
     if (role === "driver") return "driver";
     if (role === "accountant") return "finance";
     return "overview";
@@ -937,7 +941,10 @@ export default function AgencyWorkspace() {
         </div>
       )}
 
-      {/* ==================== 2. GUICHET & SECRÉTARIAT ==================== */}
+      {/* ==================== 1b. APPEL DES PASSAGERS (AGENT D'EMBARQUEMENT / POINTEUR) ==================== */}
+      {tab === "boarding" && <BoardingCallWorkspace />}
+
+      {/* ==================== 2. GUICHET (SECRÉTAIRE & VENTE) ==================== */}
       {tab === "desk" && <Desk embedded />}
 
       {/* ==================== 2b. FLOTTE & GPS EN DIRECT ==================== */}
@@ -1949,11 +1956,11 @@ export default function AgencyWorkspace() {
                     value={newStaff.role}
                     onChange={(e) => setNewStaff({ ...newStaff, role: e.target.value as AgencyRole })}
                   >
-                    <option value="secretary">Secrétaire (Départs-arrivées, billets, reports, absents)</option>
-                    <option value="driver">Chauffeur (Bus alloués, évolution km/h, bouchons, ressenti)</option>
-                    <option value="staff">Membre du personnel (Contrôle QR & bagages)</option>
+                    <option value="staff">Agent d'embarquement / Personnel de quai (Appel passagers, à bord / absents)</option>
+                    <option value="secretary">Secrétaire de gare (Guichet, vente de billets, encaissements)</option>
+                    <option value="driver">Chauffeur (Bus alloués, validation départ, suivi GPS)</option>
                     <option value="manager">Responsable Programmation (Flotte, lignes, horaires)</option>
-                    <option value="accountant">Comptable (Recettes, remboursements, devis)</option>
+                    <option value="accountant">Comptable (Recettes, encaissements, diagramme des ventes)</option>
                   </select>
                 </label>
 
@@ -1962,7 +1969,7 @@ export default function AgencyWorkspace() {
                     <span className="field__label">Intitulé personnalisé du poste (libre)</span>
                     <input
                       className="input"
-                      placeholder="Ex. Chef de Gare, Bagagiste..."
+                      placeholder="Ex. Agent d'embarquement, Pointeur de quai..."
                       value={newStaff.custom_role}
                       onChange={(e) => setNewStaff({ ...newStaff, custom_role: e.target.value })}
                     />
