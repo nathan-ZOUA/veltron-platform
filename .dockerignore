@@ -5,3 +5,4 @@ frontend/dist
 backend/.env
 backend/storage/*.log
 media
+

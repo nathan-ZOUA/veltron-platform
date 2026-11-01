@@ -23,3 +23,4 @@ ENV SHOW_OTP_HINT=1
 ENV PORT=8080
 
 CMD ["sh", "-c", "php /app/backend/bin/boot_prod.php && php -S 0.0.0.0:${PORT:-8080} -t /app/backend/public /app/backend/public/index.php"]
+

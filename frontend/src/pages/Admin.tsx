@@ -73,16 +73,30 @@ interface CommissionTotal {
 // n'a pas pu valider automatiquement, ainsi que vos reversements automatiques de 0,5 % par voyage.
 export default function Admin() {
   const { platformAdmin, loginPlatform, logoutPlatform } = useAuth();
-  const [creds, setCreds] = useState({ email: "admin@veltron.test", password: "" });
+  const [creds, setCreds] = useState({ email: "najnathan23@gmail.com", password: "" });
+  const [passwordCustomized, setPasswordCustomized] = useState(false);
   const [agencies, setAgencies] = useState<AdminAgency[]>([]);
   const [alerts, setAlerts] = useState<PlatformAlert[]>([]);
   const [commissions, setCommissions] = useState<PlatformCommission[]>([]);
   const [commissionTotals, setCommissionTotals] = useState<CommissionTotal[]>([]);
   const [ownerAccount, setOwnerAccount] = useState("VELTRON OWNER - Nathan Zoua");
   const [commissionRateBps, setCommissionRateBps] = useState(50);
+  const [ownerForm, setOwnerForm] = useState({
+    payout_method: "orange_money",
+    payout_number: "",
+    payout_name: "Nathan Zoua (Propriétaire VELTRON)",
+    current_password: "",
+    new_password: "",
+  });
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    api<{ password_customized: boolean }>("/platform/public-status", { realm: null })
+      .then((r) => setPasswordCustomized(Boolean(r.password_customized)))
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(() => {
     if (!platformAdmin) return;
@@ -93,6 +107,12 @@ export default function Admin() {
       commission_totals?: CommissionTotal[];
       owner_account?: string;
       commission_rate_bps?: number;
+      owner_settings?: {
+        payout_method: string;
+        payout_number: string;
+        payout_name: string;
+        password_customized: boolean;
+      };
     }>(`/platform/overview${filter ? `?status=${filter}` : ""}`, { realm: "platform" })
       .then((res) => {
         setAgencies(res.agencies);
@@ -101,6 +121,15 @@ export default function Admin() {
         setCommissionTotals(res.commission_totals ?? []);
         if (res.owner_account) setOwnerAccount(res.owner_account);
         if (res.commission_rate_bps) setCommissionRateBps(res.commission_rate_bps);
+        if (res.owner_settings) {
+          setPasswordCustomized(Boolean(res.owner_settings.password_customized));
+          setOwnerForm((prev) => ({
+            ...prev,
+            payout_method: res.owner_settings!.payout_method || "orange_money",
+            payout_number: res.owner_settings!.payout_number || "",
+            payout_name: res.owner_settings!.payout_name || "Nathan Zoua (Propriétaire VELTRON)",
+          }));
+        }
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Erreur de chargement."));
   }, [platformAdmin, filter]);
@@ -116,6 +145,24 @@ export default function Admin() {
       await loginPlatform(creds.email, creds.password);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Connexion refusée.");
+    }
+  }
+
+  async function saveOwnerSettings(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    setNotice("");
+    try {
+      const res = await api<{ ok: boolean; password_customized: boolean }>("/platform/account/update", {
+        body: ownerForm,
+        realm: "platform",
+      });
+      setPasswordCustomized(Boolean(res.password_customized));
+      setOwnerForm((prev) => ({ ...prev, current_password: "", new_password: "" }));
+      setNotice("✓ Vos paramètres propriétaires (compte de réception et/ou mot de passe) ont été enregistrés.");
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible d'enregistrer les paramètres.");
     }
   }
 
@@ -193,16 +240,19 @@ export default function Admin() {
             <button type="submit" className="btn btn--lg">
               Ouvrir la console propriétaire
             </button>
-            <div className="demo-note">
-              Démo locale : <code>admin@veltron.test</code> / mot de passe{" "}
-              <button
-                type="button"
-                className="chip"
-                onClick={() => setCreds({ email: "admin@veltron.test", password: "Veltron#2026" })}
-              >
-                Remplir Veltron#2026
-              </button>
-            </div>
+            {!passwordCustomized && (
+              <div className="demo-note">
+                Première connexion propriétaire : <code>najnathan23@gmail.com</code> (mot de passe initial{" "}
+                <code>Veltron#2026</code> — personnalisez votre vrai mot de passe dès l’ouverture){" "}
+                <button
+                  type="button"
+                  className="chip"
+                  onClick={() => setCreds({ email: "najnathan23@gmail.com", password: "Veltron#2026" })}
+                >
+                  Remplir l’accès initial
+                </button>
+              </div>
+            )}
           </form>
         ) : (
           <>
@@ -218,6 +268,87 @@ export default function Admin() {
 
             {notice && <div className="demo-note">{notice}</div>}
             {error && <p className="error">{error}</p>}
+
+            {/* Configuration personnalisée du Propriétaire : Vrai mot de passe & Compte de réception (0,5 %) */}
+            <form className="card form-grid" onSubmit={saveOwnerSettings}>
+              <div>
+                <span className="badge">
+                  {passwordCustomized ? "🔒 Mot de passe personnalisé actif" : "⚠️ Pensez à définir votre vrai mot de passe"}
+                </span>
+                <h2 className="subheading" style={{ margin: "6px 0 0" }}>
+                  🔐 Ma Partie Personnalisée : Mon Vrai Mot de Passe & Mon Compte de Réception (0,5 %)
+                </h2>
+                <p className="muted" style={{ margin: "4px 0 0", fontSize: "var(--text-sm)" }}>
+                  Enregistrez votre mode de réception pour recevoir vos 0,5 % automatiques et définissez votre vrai mot de passe propriétaire personnel.
+                </p>
+              </div>
+
+              <div className="search-grid">
+                <label className="field">
+                  <span className="field__label">Mon mode de réception (0,5 %)</span>
+                  <select
+                    className="select"
+                    value={ownerForm.payout_method}
+                    onChange={(e) => setOwnerForm({ ...ownerForm, payout_method: e.target.value })}
+                  >
+                    <option value="orange_money">🍊 Orange Money</option>
+                    <option value="mtn_momo">💛 MTN Mobile Money</option>
+                    <option value="wave">🌊 Wave</option>
+                    <option value="bank_transfer">🏦 Virement Bancaire / IBAN</option>
+                    <option value="card">💳 Carte / Stripe</option>
+                  </select>
+                </label>
+
+                <label className="field">
+                  <span className="field__label">Numéro Mobile Money ou IBAN propriétaire</span>
+                  <input
+                    className="input"
+                    placeholder="+237 6... ou IBAN"
+                    value={ownerForm.payout_number}
+                    onChange={(e) => setOwnerForm({ ...ownerForm, payout_number: e.target.value })}
+                  />
+                </label>
+
+                <label className="field">
+                  <span className="field__label">Nom du titulaire du compte</span>
+                  <input
+                    className="input"
+                    value={ownerForm.payout_name}
+                    onChange={(e) => setOwnerForm({ ...ownerForm, payout_name: e.target.value })}
+                  />
+                </label>
+              </div>
+
+              <div className="search-grid">
+                <label className="field">
+                  <span className="field__label">Mot de passe actuel (pour changer de mot de passe)</span>
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="Laisser vide si inchangé"
+                    value={ownerForm.current_password}
+                    onChange={(e) => setOwnerForm({ ...ownerForm, current_password: e.target.value })}
+                  />
+                </label>
+
+                <label className="field">
+                  <span className="field__label">Nouveau vrai mot de passe propriétaire (min. 8 caractères)</span>
+                  <input
+                    className="input"
+                    type="password"
+                    placeholder="Votre nouveau mot de passe secret"
+                    value={ownerForm.new_password}
+                    onChange={(e) => setOwnerForm({ ...ownerForm, new_password: e.target.value })}
+                  />
+                </label>
+              </div>
+
+              <div>
+                <button type="submit" className="btn">
+                  💾 Enregistrer mon compte & mon vrai mot de passe
+                </button>
+              </div>
+            </form>
 
             {/* Compte Propriétaire VELTRON : Commissions automatiques 0,5 % par voyage */}
             <section className="card form-grid">

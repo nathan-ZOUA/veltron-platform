@@ -24,9 +24,9 @@ route('GET', '/api/desk/trips', function () {
     $s = require_agency(['owner', 'manager', 'secretary', 'staff']);
     expire_holds();
 
-    $trips = all("SELECT t.id, t.agency_id, t.departs_at, t.arrives_at, t.status, t.delay_minutes, t.price,
+    $trips = all("SELECT t.id, t.agency_id, t.departs_at, t.arrives_at, t.status, t.delay_minutes, t.price, t.vip_price,
                          oc.name AS origin, dc.name AS destination, oc.timezone,
-                         b.label AS bus_label, b.plate, b.seat_count, a.fill_window_minutes,
+                         b.label AS bus_label, b.plate, b.seat_count, a.fill_window_minutes, a.currency_code,
                          (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.status IN ('valid','boarded')) AS booked,
                          (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.status = 'boarded') AS boarded,
                          (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.status = 'no_show') AS no_shows
@@ -36,10 +36,9 @@ route('GET', '/api/desk/trips', function () {
                   JOIN cities oc ON oc.id = r.origin_city_id
                   JOIN cities dc ON dc.id = r.dest_city_id
                   JOIN buses b ON b.id = t.bus_id
-                  WHERE t.agency_id = ? AND t.status <> 'cancelled'
-                    AND t.departs_at BETWEEN DATE_SUB(UTC_TIMESTAMP(), INTERVAL 4 HOUR)
-                                         AND DATE_ADD(UTC_TIMESTAMP(), INTERVAL 48 HOUR)
-                  ORDER BY t.departs_at", [$s['agency_id']]);
+                  WHERE t.agency_id = ? AND t.status NOT IN ('cancelled','completed')
+                    AND t.departs_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 6 HOUR)
+                  ORDER BY t.departs_at LIMIT 60", [$s['agency_id']]);
     foreach ($trips as &$t) {
         $t['departs_at'] = iso($t['departs_at']);
         $t['arrives_at'] = iso($t['arrives_at']);
@@ -275,7 +274,7 @@ route('POST', '/api/desk/tickets/{id}/transfer', function (array $p) {
     json_out(['transferred' => true, 'new_ticket_id' => $newId]);
 });
 
-// Vente directe au guichet (ajout d'un passager sans bagage / de dernière minute sur un siège libre)
+// Vente directe au guichet (encaissement en espèces ou Mobile Money par la secrétaire + ajout du passager sur le départ choisi)
 route('POST', '/api/desk/trips/{id}/sell', function (array $p) {
     [$s, $trip] = desk_trip((int) $p['id'], ['owner', 'manager', 'secretary']);
     $in = input();
@@ -283,11 +282,28 @@ route('POST', '/api/desk/trips/{id}/sell', function (array $p) {
     $seatId = (int) ($in['seat_id'] ?? 0);
     if ($name === '' || $seatId <= 0) fail(422, 'invalid_fields', 'Nom du passager et siège obligatoires.');
 
-    $res = transaction(function () use ($s, $trip, $in, $name, $seatId) {
+    $paymentMethod = strtolower(trim((string) ($in['payment_method'] ?? 'cash')));
+    if (!in_array($paymentMethod, ['cash', 'orange_money', 'mtn_momo', 'wave', 'card'], true)) {
+        $paymentMethod = 'cash';
+    }
+    $luggageWeight = isset($in['luggage_weight_kg']) ? round(max(0.0, (float) $in['luggage_weight_kg']), 1) : 0.0;
+
+    $res = transaction(function () use ($s, $trip, $in, $name, $seatId, $paymentMethod, $luggageWeight) {
         $seat = one('SELECT id, seat_no, seat_class FROM seats WHERE id = ? AND bus_id = ?', [$seatId, $trip['bus_id']])
             ?? fail(422, 'invalid_seat', 'Siège invalide.');
         $price = ($seat['seat_class'] === 'vip' && $trip['vip_price']) ? (int) $trip['vip_price'] : (int) $trip['price'];
         $ref = new_reference();
+
+        $ag = one('SELECT commission_rate_bps, payout_method, payout_account_number, name, free_baggage_kg, baggage_fee_per_kg FROM agencies WHERE id = ? FOR UPDATE', [$trip['agency_id']]);
+        $rateBps = (int) ($ag['commission_rate_bps'] ?? 50);
+        $platformFee = (int) round(($price * $rateBps) / 10000);
+        $agencyNet = max(0, $price - $platformFee);
+        $agencyPayoutLabel = $paymentMethod === 'cash'
+            ? 'CAISSE_ESPECES_GUICHET'
+            : (($ag['payout_method'] ?: 'orange_money') . ':' . ($ag['payout_account_number'] ?: $ag['name']));
+        $payerAccount = $paymentMethod === 'cash'
+            ? 'ESPECES_RECU_PAR_SECRETAIRE'
+            : (str_in($in['phone'] ?? '', 25) ?: 'CLIENT_GUICHET');
 
         q("INSERT INTO bookings (reference, agency_id, trip_id, user_id, channel, status, total, currency_code)
            VALUES (?,?,?, NULL, 'counter', 'paid', ?, ?)",
@@ -308,13 +324,36 @@ route('POST', '/api/desk/trips/{id}/sell', function (array $p) {
         }
         $ticketId = (int) db()->lastInsertId();
 
-        q("INSERT INTO payments (booking_id, provider, provider_ref, idempotency_key, amount, currency_code, status, sandbox)
-           VALUES (?, 'cash', ?, ?, ?, ?, 'succeeded', 1)",
-            [$bookingId, 'CSH-' . strtoupper(bin2hex(random_bytes(4))), 'cnt-' . bin2hex(random_bytes(8)), $price, $trip['currency_code']]);
+        $luggageTag = null;
+        if ($luggageWeight > 0) {
+            $extra = max(0.0, $luggageWeight - (float) ($ag['free_baggage_kg'] ?? 20));
+            $fee = (int) ceil($extra * (int) ($ag['baggage_fee_per_kg'] ?? 0));
+            $luggageTag = 'BG-' . random_code(6);
+            q('INSERT INTO luggage (ticket_id, tag_code, pieces, weight_kg, fee, created_by) VALUES (?,?,1,?,?,?)',
+                [$ticketId, $luggageTag, $luggageWeight, $fee, $s['id']]);
+        }
+
+        q('UPDATE agencies SET wallet_balance = wallet_balance + ? WHERE id = ?', [$agencyNet, $trip['agency_id']]);
+        q("INSERT INTO payments (booking_id, provider, provider_ref, payer_account, agency_payout_account, idempotency_key,
+                                 amount, agency_net_amount, platform_fee_amount, currency_code, status, sandbox)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'succeeded', 0)",
+            [$bookingId, $paymentMethod, 'CSH-' . strtoupper(bin2hex(random_bytes(4))),
+             $payerAccount, $agencyPayoutLabel, 'cnt-' . bin2hex(random_bytes(8)),
+             $price, $agencyNet, $platformFee, $trip['currency_code']]);
+
         // Si le bus devient plein avec cette vente guichet, reversement automatique des 0,5 % à VELTRON
         settle_trip_commission((int) $trip['id']);
-        audit((int) $s['id'], (int) $s['agency_id'], 'ticket.counter_sale', 'ticket', $ticketId, ['seat_no' => $seat['seat_no']]);
-        return ['reference' => $ref, 'ticket_id' => $ticketId, 'seat_no' => (int) $seat['seat_no']];
+        audit((int) $s['id'], (int) $s['agency_id'], 'ticket.counter_sale', 'ticket', $ticketId, [
+            'seat_no' => $seat['seat_no'], 'payment_method' => $paymentMethod, 'amount' => $price,
+        ]);
+        return [
+            'reference' => $ref,
+            'ticket_id' => $ticketId,
+            'seat_no' => (int) $seat['seat_no'],
+            'price' => $price,
+            'payment_method' => $paymentMethod,
+            'luggage_tag' => $luggageTag,
+        ];
     });
 
     json_out($res, 201);

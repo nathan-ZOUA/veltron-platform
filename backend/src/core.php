@@ -94,6 +94,8 @@ function db(): PDO
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
+            PDO::ATTR_PERSISTENT => true,
+            PDO::ATTR_TIMEOUT => 5,
         ]);
         $pdo->exec("SET time_zone = '+00:00'"); // tout est stocké en UTC
     }
@@ -110,18 +112,46 @@ function q(string $sql, array $params = []): PDOStatement
 function all(string $sql, array $params = []): array { return q($sql, $params)->fetchAll(); }
 function one(string $sql, array $params = []): ?array { return q($sql, $params)->fetch() ?: null; }
 
+// Transaction haute concurrence avec retry automatique en cas de contention InnoDB (deadlock 1213 / lock wait 1205)
 function transaction(callable $fn): mixed
 {
     $pdo = db();
-    $pdo->beginTransaction();
-    try {
-        $result = $fn();
-        $pdo->commit();
-        return $result;
-    } catch (Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
-        throw $e;
+    $maxRetries = 3;
+    for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+        $pdo->beginTransaction();
+        try {
+            $result = $fn();
+            $pdo->commit();
+            return $result;
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            $driverCode = (int) ($e->errorInfo[1] ?? 0);
+            if ($attempt < $maxRetries && in_array($driverCode, [1205, 1213], true)) {
+                usleep(random_int(15000, 60000) * $attempt);
+                continue;
+            }
+            throw $e;
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            throw $e;
+        }
     }
+    return null;
+}
+
+function get_platform_setting(string $key, string $default = ''): string
+{
+    try {
+        $row = one('SELECT v FROM platform_settings WHERE k = ?', [$key]);
+        return $row ? (string) $row['v'] : $default;
+    } catch (Throwable) {
+        return $default;
+    }
+}
+
+function set_platform_setting(string $key, string $value): void
+{
+    q('INSERT INTO platform_settings (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)', [$key, $value]);
 }
 
 // "2026-10-31 14:00:00" -> "2026-10-31T14:00:00Z"

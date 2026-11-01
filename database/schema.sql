@@ -94,9 +94,14 @@ CREATE TABLE agencies (
   points_per_trip       SMALLINT UNSIGNED NOT NULL DEFAULT 10, -- fidélité : points gagnés par voyage
   commission_rate_bps   SMALLINT UNSIGNED NOT NULL DEFAULT 50, -- 50 bps = 0,50 % versés automatiquement à VELTRON
   contract_accepted_at  DATETIME NULL,                         -- signature horodatée du contrat de partenariat 0,5 %
+  payout_method         VARCHAR(40) NOT NULL DEFAULT 'orange_money', -- orange_money, mtn_momo, wave, bank_transfer, card
+  payout_account_number VARCHAR(80) NULL,                      -- numéro / IBAN du compte de réception de l'agence
+  payout_account_name   VARCHAR(120) NULL,                     -- titulaire du compte de l'agence
+  wallet_balance        BIGINT UNSIGNED NOT NULL DEFAULT 0,    -- solde crédité directement sur le compte de l'agence
   is_seed               TINYINT(1) NOT NULL DEFAULT 0,
   created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_agency_address_normalized (address_normalized),
+  KEY idx_agencies_status_country (status, country_id),
   CONSTRAINT chk_cutoff CHECK (refund_cutoff_minutes >= 120),   -- règle : 2 h minimum
   CONSTRAINT chk_fill CHECK (fill_window_minutes BETWEEN 5 AND 240),
   FOREIGN KEY (country_id)    REFERENCES countries(id),
@@ -266,6 +271,7 @@ CREATE TABLE trips (
   delay_minutes  SMALLINT NOT NULL DEFAULT 0,   -- retard déclaré cumulé
   postponed_from DATETIME NULL,                  -- heure initiale si le voyage a été reporté
   KEY idx_search (route_id, departs_at),
+  KEY idx_trips_scale (status, departs_at, agency_id, route_id),
   FOREIGN KEY (agency_id) REFERENCES agencies(id) ON DELETE CASCADE,
   FOREIGN KEY (route_id)  REFERENCES routes(id),
   FOREIGN KEY (bus_id)    REFERENCES buses(id)
@@ -326,6 +332,8 @@ CREATE TABLE bookings (
   expires_at  DATETIME NULL,                      -- blocage temporaire (15 min)
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_booking_trip (trip_id, status),
+  KEY idx_bookings_user (user_id, status, created_at),
+  KEY idx_bookings_agency (agency_id, status, created_at),
   FOREIGN KEY (agency_id)     REFERENCES agencies(id),
   FOREIGN KEY (trip_id)       REFERENCES trips(id),
   FOREIGN KEY (user_id)       REFERENCES users(id),
@@ -355,6 +363,7 @@ CREATE TABLE tickets (
                  ) STORED,
   UNIQUE KEY uq_active_seat (trip_id, active_seat_id),
   KEY idx_ticket_booking (booking_id),
+  KEY idx_tickets_scale (trip_id, status, seat_id),
   FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
   FOREIGN KEY (trip_id)    REFERENCES trips(id),
   FOREIGN KEY (seat_id)    REFERENCES seats(id)
@@ -389,18 +398,43 @@ CREATE TABLE luggage (
   FOREIGN KEY (ticket_id) REFERENCES tickets(id)
 ) ENGINE=InnoDB;
 
--- ---------- Paiements et remboursements ----------
+-- ---------- Paiements, Modes de paiement enregistrés et Remboursements ----------
+CREATE TABLE passenger_payment_methods (
+  id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id        BIGINT UNSIGNED NOT NULL,
+  provider       VARCHAR(40) NOT NULL DEFAULT 'orange_money', -- orange_money, mtn_momo, wave, card
+  account_number VARCHAR(80) NOT NULL,                        -- numéro Mobile Money ou carte masquée
+  account_holder VARCHAR(120) NOT NULL,
+  balance        BIGINT UNSIGNED NOT NULL DEFAULT 500000,     -- solde disponible déduit directement lors de l'achat
+  currency_code  CHAR(3) NOT NULL DEFAULT 'XAF',
+  is_default     TINYINT(1) NOT NULL DEFAULT 1,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_ppm_user (user_id, is_default),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE platform_settings (
+  k          VARCHAR(64) PRIMARY KEY,
+  v          TEXT NOT NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
 CREATE TABLE payments (
-  id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  booking_id      BIGINT UNSIGNED NOT NULL,
-  provider        VARCHAR(40) NOT NULL,            -- mtn_momo, orange_money, card, cash…
-  provider_ref    VARCHAR(80) NULL,
-  idempotency_key VARCHAR(80) NOT NULL UNIQUE,     -- évite les doubles débits
-  amount          INT UNSIGNED NOT NULL,
-  currency_code   CHAR(3) NOT NULL,
-  status          ENUM('initiated','succeeded','failed','refunded') NOT NULL DEFAULT 'initiated',
-  sandbox         TINYINT(1) NOT NULL DEFAULT 1,   -- 1 tant qu'aucun fournisseur réel n'est branché
-  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id                    BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  booking_id            BIGINT UNSIGNED NOT NULL,
+  provider              VARCHAR(40) NOT NULL,            -- mtn_momo, orange_money, wave, card, cash…
+  provider_ref          VARCHAR(80) NULL,
+  payer_account         VARCHAR(80) NULL,                -- compte débité du passager ou ESPECES_GUICHET
+  agency_payout_account VARCHAR(80) NULL,                -- compte de réception de l'agence crédité directement
+  idempotency_key       VARCHAR(80) NOT NULL UNIQUE,     -- évite les doubles débits
+  amount                INT UNSIGNED NOT NULL,
+  agency_net_amount     INT UNSIGNED NOT NULL DEFAULT 0, -- part nette versée sur le compte de l'agence (99,5 %)
+  platform_fee_amount   INT UNSIGNED NOT NULL DEFAULT 0, -- part propriétaire VELTRON (0,5 %)
+  currency_code         CHAR(3) NOT NULL,
+  status                ENUM('initiated','succeeded','failed','refunded') NOT NULL DEFAULT 'initiated',
+  sandbox               TINYINT(1) NOT NULL DEFAULT 0,
+  created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_payments_booking (booking_id, status, created_at),
   FOREIGN KEY (booking_id) REFERENCES bookings(id),
   FOREIGN KEY (currency_code) REFERENCES currencies(code)
 ) ENGINE=InnoDB;

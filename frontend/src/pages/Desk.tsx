@@ -41,8 +41,16 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   const [consent, setConsent] = useState<Record<number, boolean>>({});
   const [seatChoice, setSeatChoice] = useState<Record<number, number>>({});
 
-  // Vente rapide au guichet (ajout d'un nouveau client sans bagage)
-  const [walkIn, setWalkIn] = useState({ passenger_name: "", seat_id: 0, id_type: "CNI", id_number: "", phone: "" });
+  // Vente rapide au guichet par la secrétaire (paiement en espèces ou Mobile Money + ajout direct du passager sur un départ choisi)
+  const [walkIn, setWalkIn] = useState({
+    passenger_name: "",
+    seat_id: 0,
+    id_type: "CNI",
+    id_number: "",
+    phone: "",
+    payment_method: "cash",
+    luggage_weight_kg: "",
+  });
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -203,12 +211,24 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
     setError("");
     setMessage("");
     try {
-      const res = await api<{ reference: string; seat_no: number }>(`/desk/trips/${tripId}/sell`, {
-        body: walkIn,
+      const res = await api<{ reference: string; seat_no: number; payment_method: string }>(`/desk/trips/${tripId}/sell`, {
+        body: {
+          ...walkIn,
+          luggage_weight_kg: walkIn.luggage_weight_kg ? Number(walkIn.luggage_weight_kg) : 0,
+        },
         realm: "agency",
       });
-      setMessage(`✓ Passager ajouté sur le siège #${res.seat_no} — Réf. ${res.reference}`);
-      setWalkIn({ passenger_name: "", seat_id: 0, id_type: "CNI", id_number: "", phone: "" });
+      const modeLabel = res.payment_method === "cash" ? "Espèces (Cash)" : res.payment_method.toUpperCase();
+      setMessage(`✓ Passager ajouté sur le siège #${res.seat_no} (${modeLabel}) — Réf. ${res.reference}`);
+      setWalkIn({
+        passenger_name: "",
+        seat_id: 0,
+        id_type: "CNI",
+        id_number: "",
+        phone: "",
+        payment_method: "cash",
+        luggage_weight_kg: "",
+      });
       await loadManifest(tripId);
       loadTrips();
     } catch (err) {
@@ -225,8 +245,8 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   return (
     <div className={embedded ? "desk page-embedded" : "container page desk"}>
       <aside className="desk__trips">
-        <h2 className="subheading">Départs & Arrivées (48 h)</h2>
-        {trips.length === 0 && <p className="muted">Aucun départ prévu dans les prochaines 48 heures.</p>}
+        <h2 className="subheading">Départs Choisis & Embarquement</h2>
+        {trips.length === 0 && <p className="muted">Aucun départ programmé pour le moment.</p>}
         {trips.map((x) => (
           <button
             key={x.id}
@@ -374,11 +394,16 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                       const k = manifest.tickets.find((x) => x.seat_no === s.seat_no && x.status !== "no_show");
                       return {
                         ...s,
-                        disabled: true,
-                        className: k ? seatClass[k.status] : "",
-                        title: k ? `${k.reference} · ${k.passenger_name}` : "Siège libre",
+                        disabled: Boolean(k),
+                        className: k
+                          ? seatClass[k.status]
+                          : walkIn.seat_id === s.id
+                            ? "seat--selected"
+                            : "",
+                        title: k ? `${k.reference} · ${k.passenger_name}` : "Cliquez pour choisir ce siège libre au guichet",
                       };
                     })}
+                    onSelect={(s) => setWalkIn((cur) => ({ ...cur, seat_id: s.id }))}
                   />
                 )}
 
@@ -536,15 +561,56 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
               </div>
             )}
 
-            {/* Ajout direct d'un nouveau client sans bagage au guichet sur une place libre */}
+            {/* Ajout direct d'un passager par la secrétaire sur le départ choisi + encaissement Espèces ou Mobile Money */}
             {canManage && freeSeatsList.length > 0 && (
-              <form className="card form-grid" onSubmit={sellWalkIn}>
-                <h3 className="subheading" style={{ margin: 0 }}>
-                  Ajouter un passager de dernière minute (vente directe guichet sur place libre)
-                </h3>
+              <form className="card form-grid" onSubmit={sellWalkIn} style={{ border: "1px solid var(--accent)" }}>
+                <div>
+                  <span className="badge">💵 Guichet Secrétaire — Paiement en Espèces ou Mobile Money</span>
+                  <h3 className="subheading" style={{ marginTop: 6, marginBottom: 4 }}>
+                    Ajouter un passager sur ce départ choisi ({current.origin} → {current.destination})
+                  </h3>
+                  <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                    La secrétaire reçoit le paiement en <strong>espèces (cash)</strong> (ou Mobile Money), note cela dans l’application et inscrit immédiatement le passager grâce à ses coordonnées sur un siège libre.
+                  </p>
+                </div>
+
                 <div className="search-grid">
                   <label className="field">
-                    <span className="field__label">Nom complet du client</span>
+                    <span className="field__label">Mode de paiement reçu par la secrétaire</span>
+                    <select
+                      className="select"
+                      value={walkIn.payment_method}
+                      onChange={(e) => setWalkIn({ ...walkIn, payment_method: e.target.value })}
+                    >
+                      <option value="cash">💵 Paiement en Espèces (Cash reçu au guichet)</option>
+                      <option value="orange_money">🍊 Orange Money</option>
+                      <option value="mtn_momo">💛 MTN Mobile Money</option>
+                      <option value="wave">🌊 Wave</option>
+                      <option value="card">💳 Carte Bancaire / TPE</option>
+                    </select>
+                  </label>
+
+                  <label className="field">
+                    <span className="field__label">Siège libre sur ce départ (ou cliquez sur le plan)</span>
+                    <select
+                      className="select"
+                      required
+                      value={walkIn.seat_id}
+                      onChange={(e) => setWalkIn({ ...walkIn, seat_id: Number(e.target.value) })}
+                    >
+                      <option value={0}>Choisir un siège libre…</option>
+                      {freeSeatsList.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          Siège #{s.seat_no} ({s.seat_class})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="search-grid">
+                  <label className="field">
+                    <span className="field__label">Nom complet du passager</span>
                     <input
                       className="input"
                       required
@@ -554,23 +620,16 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                     />
                   </label>
                   <label className="field">
-                    <span className="field__label">Siège libre</span>
-                    <select
-                      className="select"
-                      required
-                      value={walkIn.seat_id}
-                      onChange={(e) => setWalkIn({ ...walkIn, seat_id: Number(e.target.value) })}
-                    >
-                      <option value={0}>Choisir un siège…</option>
-                      {freeSeatsList.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          Siège #{s.seat_no} ({s.seat_class})
-                        </option>
-                      ))}
-                    </select>
+                    <span className="field__label">Téléphone du passager</span>
+                    <input
+                      className="input"
+                      placeholder="+237 6..."
+                      value={walkIn.phone}
+                      onChange={(e) => setWalkIn({ ...walkIn, phone: e.target.value })}
+                    />
                   </label>
                   <label className="field">
-                    <span className="field__label">Pièce d’identité</span>
+                    <span className="field__label">Pièce d’identité (CNI / Passeport)</span>
                     <input
                       className="input"
                       placeholder="N° CNI / Passeport"
@@ -579,18 +638,21 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                     />
                   </label>
                   <label className="field">
-                    <span className="field__label">Téléphone</span>
+                    <span className="field__label">Bagages (kg, optionnel)</span>
                     <input
                       className="input"
-                      placeholder="+237..."
-                      value={walkIn.phone}
-                      onChange={(e) => setWalkIn({ ...walkIn, phone: e.target.value })}
+                      type="number"
+                      min={0}
+                      step="0.5"
+                      placeholder="0 kg"
+                      value={walkIn.luggage_weight_kg}
+                      onChange={(e) => setWalkIn({ ...walkIn, luggage_weight_kg: e.target.value })}
                     />
                   </label>
                 </div>
                 <div>
                   <button type="submit" className="btn" disabled={!walkIn.passenger_name.trim() || !walkIn.seat_id}>
-                    Émettre le billet guichet ({formatMoney(manifest.price, manifest.currency_code, minor, i18n.language)})
+                    ✓ Encaisser ({walkIn.payment_method === "cash" ? "Espèces" : walkIn.payment_method.toUpperCase()}) & Ajouter le passager ({formatMoney(manifest.price, manifest.currency_code, minor, i18n.language)})
                   </button>
                 </div>
               </form>

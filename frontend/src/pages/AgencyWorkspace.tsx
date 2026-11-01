@@ -276,7 +276,20 @@ export default function AgencyWorkspace() {
     veltron_commission?: number;
     commission_rate_bps?: number;
     net: number;
-    payments: { id: number; reference: string; channel: string; provider: string; amount: number; status: string; created_at: string }[];
+    wallet_balance?: number;
+    payout_settings?: { payout_method: string; payout_account_number: string; payout_account_name: string };
+    payments: {
+      id: number;
+      reference: string;
+      channel: string;
+      provider: string;
+      payer_account?: string | null;
+      agency_payout_account?: string | null;
+      agency_net_amount?: number | null;
+      amount: number;
+      status: string;
+      created_at: string;
+    }[];
     refunds: { id: number; reference: string; passenger_name: string; amount: number; status: string; requested_at: string }[];
     commissions?: {
       id: number;
@@ -293,6 +306,11 @@ export default function AgencyWorkspace() {
       settled_at: string;
     }[];
   } | null>(null);
+  const [payoutForm, setPayoutForm] = useState({
+    payout_method: "orange_money",
+    payout_account_number: "",
+    payout_account_name: "",
+  });
 
   // Paramètres & Audit
   const [settings, setSettings] = useState({
@@ -366,6 +384,13 @@ export default function AgencyWorkspace() {
       } else if (tab === "finance") {
         const f = await api<NonNullable<typeof finance>>("/agency/finance", { realm: "agency" });
         setFinance(f);
+        if (f.payout_settings) {
+          setPayoutForm({
+            payout_method: f.payout_settings.payout_method || "orange_money",
+            payout_account_number: f.payout_settings.payout_account_number || "",
+            payout_account_name: f.payout_settings.payout_account_name || "",
+          });
+        }
       } else if (tab === "settings") {
         const logs = await api<typeof auditLogs>("/agency/audit", { realm: "agency" });
         setAuditLogs(logs);
@@ -582,6 +607,19 @@ export default function AgencyWorkspace() {
       await api("/agency/settings", { body: settings, realm: "agency" });
       await refreshAgency();
       setNotice("✓ Paramètres de sécurité et règles opérationnelles enregistrés.");
+    } catch (err) {
+      handleErr(err);
+    }
+  }
+
+  async function savePayoutSettings(e: FormEvent) {
+    e.preventDefault();
+    setNotice("");
+    setError("");
+    try {
+      await api("/agency/payout-settings", { body: payoutForm, realm: "agency" });
+      setNotice("✓ Compte de réception des paiements de l’agence enregistré !");
+      loadTabContent();
     } catch (err) {
       handleErr(err);
     }
@@ -1726,10 +1764,63 @@ export default function AgencyWorkspace() {
               </span>
             </div>
             <div className="card kpi-card kpi-card--accent">
-              <span className="muted">Recette nette agence (99,5 %)</span>
-              <strong className="display kpi-card__value mono">{money(finance.net)}</strong>
+              <span className="muted">Solde reçu sur le compte de l’agence (99,5 %)</span>
+              <strong className="display kpi-card__value mono">{money(finance.wallet_balance ?? finance.net)}</strong>
+              <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
+                Compte : {finance.payout_settings?.payout_account_number || "À configurer ci-dessous"}
+              </span>
             </div>
           </div>
+
+          <form className="card form-grid" onSubmit={savePayoutSettings} style={{ border: "1px solid var(--accent)" }}>
+            <h3 className="subheading" style={{ margin: 0 }}>
+              💳 Compte de réception des paiements de l’agence (crédit direct automatique)
+            </h3>
+            <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+              Lorsqu’un passager paie son billet en ligne, l’argent est <strong>déduit directement de son compte</strong> et <strong>99,5 % part directement sur ce compte enregistré de l’agence</strong> (0,5 % commission VELTRON).
+            </p>
+            <div className="search-grid">
+              <label className="field">
+                <span className="field__label">Mode de réception</span>
+                <select
+                  className="select"
+                  value={payoutForm.payout_method}
+                  onChange={(e) => setPayoutForm({ ...payoutForm, payout_method: e.target.value })}
+                >
+                  <option value="orange_money">🍊 Orange Money</option>
+                  <option value="mtn_momo">💛 MTN Mobile Money</option>
+                  <option value="wave">🌊 Wave</option>
+                  <option value="bank_transfer">🏦 Virement Bancaire / IBAN</option>
+                  <option value="card">💳 Carte / Stripe</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field__label">Numéro Mobile Money ou IBAN de l’agence</span>
+                <input
+                  className="input mono"
+                  required
+                  placeholder="+237 6... ou IBAN"
+                  value={payoutForm.payout_account_number}
+                  onChange={(e) => setPayoutForm({ ...payoutForm, payout_account_number: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">Nom du titulaire du compte agence</span>
+                <input
+                  className="input"
+                  required
+                  placeholder="Nom officiel de l’agence"
+                  value={payoutForm.payout_account_name}
+                  onChange={(e) => setPayoutForm({ ...payoutForm, payout_account_name: e.target.value })}
+                />
+              </label>
+            </div>
+            <div>
+              <button type="submit" className="btn">
+                Enregistrer le compte de réception de l’agence
+              </button>
+            </div>
+          </form>
 
           {finance.commissions && finance.commissions.length > 0 && (
             <div className="card form-grid">
@@ -1770,7 +1861,10 @@ export default function AgencyWorkspace() {
                       <strong className="mono">{money(p.amount)}</strong>
                     </div>
                     <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                      Canal : {p.channel} · {p.provider} · {p.status}
+                      Canal : {p.channel} · {p.provider.toUpperCase()} · {p.status}
+                      {p.payer_account ? ` · Débité de ${p.payer_account}` : ""}
+                      {p.agency_payout_account ? ` → Crédité sur ${p.agency_payout_account}` : ""}
+                      {p.agency_net_amount ? ` (Net agence : ${money(p.agency_net_amount)})` : ""}
                     </span>
                   </li>
                 ))}

@@ -113,6 +113,13 @@ route('POST', '/api/agencies/register', function () {
     $password = (string) ($o['password'] ?? '');
     $contractAccepted = filter_var($in['contract_accepted'] ?? ($a['contract_accepted'] ?? false), FILTER_VALIDATE_BOOLEAN);
 
+    $payoutMethod = strtolower(trim((string) ($a['payout_method'] ?? 'orange_money')));
+    if (!in_array($payoutMethod, ['orange_money', 'mtn_momo', 'wave', 'bank_transfer', 'card'], true)) {
+        $payoutMethod = 'orange_money';
+    }
+    $payoutNumber = str_in($a['payout_account_number'] ?? ($phone ?: ''), 80);
+    $payoutName = str_in($a['payout_account_name'] ?? $name, 120);
+
     if ($name === '') fail(422, 'invalid_name', 'Le nom de l\'agence est obligatoire.');
     if (!$contractAccepted) {
         fail(422, 'contract_required', 'Vous devez lire et accepter les termes du Contrat de Partenariat VELTRON (commission automatique de 0,5 % sur le montant totalisé de chaque voyage).');
@@ -167,7 +174,8 @@ route('POST', '/api/agencies/register', function () {
 
     $agencyId = transaction(function () use (
         $ownerEmail, $password, $ownerFirst, $ownerLast, $phone, $publicCode, $slug, $name,
-        $country, $cityName, $currency, $color, $legalId, $email, $address, $addressNorm, $verdict
+        $country, $cityName, $currency, $color, $legalId, $email, $address, $addressNorm, $verdict,
+        $payoutMethod, $payoutNumber, $payoutName
     ) {
         $algo = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
         q('INSERT INTO users (email, phone, password_hash, first_name, last_name) VALUES (?,?,?,?,?)',
@@ -178,13 +186,15 @@ route('POST', '/api/agencies/register', function () {
         $rateBps = (int) (env('PLATFORM_COMMISSION_BPS', '50') ?: 50);
         q('INSERT INTO agencies (public_code, slug, name, country_id, city_name, currency_code, primary_color, legal_id,
                                  email, phone, address, address_normalized, verification_status, verification_score,
-                                 verification_report, verified_at, registered_ip, status, commission_rate_bps, contract_accepted_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, IF(? = 1, UTC_TIMESTAMP(), NULL), ?, ?, ?, UTC_TIMESTAMP())',
+                                 verification_report, verified_at, registered_ip, status, commission_rate_bps, contract_accepted_at,
+                                 payout_method, payout_account_number, payout_account_name)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, IF(? = 1, UTC_TIMESTAMP(), NULL), ?, ?, ?, UTC_TIMESTAMP(), ?, ?, ?)',
             [$publicCode, $slug, $name, $country['id'], $cityName, $currency['code'], $color,
              $legalId ?: null, $email, $phone ?: null, $address, $addressNorm,
              $verdict['verification_status'], $verdict['score'],
              json_encode($verdict, JSON_UNESCAPED_UNICODE),
-             $verdict['approved'] ? 1 : 0, client_ip(), $verdict['agency_status'], $rateBps]);
+             $verdict['approved'] ? 1 : 0, client_ip(), $verdict['agency_status'], $rateBps,
+             $payoutMethod, $payoutNumber ?: null, $payoutName ?: null]);
         $agencyId = (int) db()->lastInsertId();
 
         q("INSERT INTO agency_staff (agency_id, user_id, role, job_title) VALUES (?,?, 'owner', 'Administrateur')",
@@ -254,12 +264,19 @@ route('POST', '/api/agencies/register', function () {
 // =============================================================================
 // SUPERVISION PROPRIÉTAIRE VELTRON (Vous : validation des cas escaladés par l'IA)
 // =============================================================================
+route('GET', '/api/platform/public-status', function () {
+    json_out([
+        'password_customized' => get_platform_setting('password_customized', '0') === '1',
+    ]);
+});
+
 route('GET', '/api/platform/overview', function () {
-    require_platform_admin();
+    $admin = require_platform_admin();
     $status = (string) ($_GET['status'] ?? '');
     $agencies = all("SELECT a.id, a.public_code, a.slug, a.name, a.status, a.verification_status,
                             a.verification_score, a.verification_report, a.email, a.phone, a.address,
                             a.legal_id, a.currency_code, a.commission_rate_bps, a.contract_accepted_at,
+                            a.payout_method, a.payout_account_number, a.payout_account_name, a.wallet_balance,
                             a.created_at, c.name_fr AS country_name, c.iso2 AS country
                      FROM agencies a JOIN countries c ON c.id = a.country_id
                      WHERE (? = '' OR a.status = ?)
@@ -270,6 +287,7 @@ route('GET', '/api/platform/overview', function () {
         $ag['created_at'] = iso($ag['created_at']);
         $ag['contract_accepted_at'] = iso($ag['contract_accepted_at']);
         $ag['commission_rate_bps'] = (int) ($ag['commission_rate_bps'] ?? 50);
+        $ag['wallet_balance'] = (int) ($ag['wallet_balance'] ?? 0);
         $digits = clean_phone_digits($ag['phone']);
         $ag['whatsapp_url'] = $digits !== ''
             ? 'https://wa.me/' . $digits . '?text=' . rawurlencode("Bonjour {$ag['name']}, ici la direction VELTRON concernant votre dossier {$ag['public_code']}.")
@@ -327,14 +345,69 @@ route('GET', '/api/platform/overview', function () {
         $tot['minor_units'] = (int) $tot['minor_units'];
     }
 
+    $ownerMethod = get_platform_setting('owner_payout_method', 'orange_money');
+    $ownerNumber = get_platform_setting('owner_payout_number', '');
+    $ownerName   = get_platform_setting('owner_payout_name', env('OWNER_PAYOUT_ACCOUNT', 'VELTRON OWNER - Nathan Zoua'));
+
     json_out([
         'agencies' => $agencies,
         'alerts' => $alerts,
         'commissions' => $commissions,
         'commission_totals' => $totals,
-        'owner_account' => env('OWNER_PAYOUT_ACCOUNT', 'VELTRON OWNER - Nathan Zoua'),
+        'owner_account' => $ownerName . ($ownerNumber ? " ($ownerMethod : $ownerNumber)" : ''),
         'commission_rate_bps' => (int) (env('PLATFORM_COMMISSION_BPS', '50') ?: 50),
+        'owner_settings' => [
+            'email' => $admin['email'],
+            'payout_method' => $ownerMethod,
+            'payout_number' => $ownerNumber,
+            'payout_name' => $ownerName,
+            'password_customized' => get_platform_setting('password_customized', '0') === '1',
+        ],
     ]);
+});
+
+// Personnalisation du vrai mot de passe Propriétaire & du compte de réception des commissions 0,5 %
+route('POST', '/api/platform/account/update', function () {
+    $admin = require_platform_admin();
+    $in = input();
+
+    if (isset($in['payout_method']) || isset($in['payout_number']) || isset($in['payout_name'])) {
+        $pm = strtolower(trim((string) ($in['payout_method'] ?? 'orange_money')));
+        if (!in_array($pm, ['orange_money', 'mtn_momo', 'wave', 'bank_transfer', 'card'], true)) $pm = 'orange_money';
+        $pn = str_in($in['payout_number'] ?? '', 80);
+        $pname = str_in($in['payout_name'] ?? 'Nathan Zoua (Propriétaire VELTRON)', 120);
+        set_platform_setting('owner_payout_method', $pm);
+        set_platform_setting('owner_payout_number', $pn);
+        set_platform_setting('owner_payout_name', $pname);
+    }
+
+    $newPassword = (string) ($in['new_password'] ?? '');
+    $currentPassword = (string) ($in['current_password'] ?? '');
+    $newEmail = strtolower(trim((string) ($in['new_email'] ?? '')));
+
+    if ($newPassword !== '') {
+        if (strlen($newPassword) < 8) {
+            fail(422, 'weak_password', 'Votre nouveau mot de passe doit contenir au moins 8 caractères.');
+        }
+        $userRow = one('SELECT id, password_hash FROM users WHERE id = ?', [(int) $admin['user_id']]);
+        if (!$userRow || !password_verify($currentPassword, (string) $userRow['password_hash'])) {
+            fail(403, 'wrong_current_password', 'Le mot de passe actuel saisi est incorrect.');
+        }
+        $algo = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
+        $hash = password_hash($newPassword, $algo);
+        // Met à jour tous les comptes super_admin du propriétaire pour qu'aucun mot de passe par défaut ne subsiste
+        q("UPDATE users SET password_hash = ?, is_seed = 0 WHERE platform_role = 'super_admin'", [$hash]);
+        set_platform_setting('password_customized', '1');
+    }
+
+    if ($newEmail !== '' && filter_var($newEmail, FILTER_VALIDATE_EMAIL) && $newEmail !== $admin['email']) {
+        q('UPDATE users SET email = ? WHERE id = ?', [$newEmail, (int) $admin['user_id']]);
+    }
+
+    audit((int) $admin['user_id'], null, 'platform.account_update', 'user', (int) $admin['user_id'], [
+        'password_changed' => $newPassword !== '',
+    ]);
+    json_out(['ok' => true, 'password_customized' => get_platform_setting('password_customized', '0') === '1']);
 });
 
 route('POST', '/api/platform/agencies/{id}/decision', function (array $p) {

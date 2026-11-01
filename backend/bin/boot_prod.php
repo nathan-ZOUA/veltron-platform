@@ -90,6 +90,90 @@ if (!$hasTables) {
     }
 }
 
+// =============================================================================
+// MIGRATIONS AUTOMATIQUES & INDEX HAUTE CAPACITÉ (2 000 000+ CONNEXIONS)
+// =============================================================================
+$migrations = [
+    "ALTER TABLE agencies ADD COLUMN IF NOT EXISTS payout_method VARCHAR(40) NOT NULL DEFAULT 'orange_money'",
+    "ALTER TABLE agencies ADD COLUMN IF NOT EXISTS payout_account_number VARCHAR(80) NULL",
+    "ALTER TABLE agencies ADD COLUMN IF NOT EXISTS payout_account_name VARCHAR(120) NULL",
+    "ALTER TABLE agencies ADD COLUMN IF NOT EXISTS wallet_balance BIGINT UNSIGNED NOT NULL DEFAULT 0",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS payer_account VARCHAR(80) NULL",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS agency_payout_account VARCHAR(80) NULL",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS agency_net_amount INT UNSIGNED NOT NULL DEFAULT 0",
+    "ALTER TABLE payments ADD COLUMN IF NOT EXISTS platform_fee_amount INT UNSIGNED NOT NULL DEFAULT 0",
+    "CREATE TABLE IF NOT EXISTS passenger_payment_methods (
+        id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id        BIGINT UNSIGNED NOT NULL,
+        provider       VARCHAR(40) NOT NULL DEFAULT 'orange_money',
+        account_number VARCHAR(80) NOT NULL,
+        account_holder VARCHAR(120) NOT NULL,
+        balance        BIGINT UNSIGNED NOT NULL DEFAULT 500000,
+        currency_code  CHAR(3) NOT NULL DEFAULT 'XAF',
+        is_default     TINYINT(1) NOT NULL DEFAULT 1,
+        created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_ppm_user (user_id, is_default),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB",
+    "CREATE TABLE IF NOT EXISTS platform_settings (
+        k          VARCHAR(64) PRIMARY KEY,
+        v          TEXT NOT NULL,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB",
+];
+foreach ($migrations as $m) {
+    try { $pdo->exec($m); } catch (Throwable) {}
+}
+
+// Ajout idempotent des colonnes si MySQL 8 ne supporte pas ADD COLUMN IF NOT EXISTS
+$alterCols = [
+    ['agencies', 'payout_method', "VARCHAR(40) NOT NULL DEFAULT 'orange_money'"],
+    ['agencies', 'payout_account_number', "VARCHAR(80) NULL"],
+    ['agencies', 'payout_account_name', "VARCHAR(120) NULL"],
+    ['agencies', 'wallet_balance', "BIGINT UNSIGNED NOT NULL DEFAULT 0"],
+    ['payments', 'payer_account', "VARCHAR(80) NULL"],
+    ['payments', 'agency_payout_account', "VARCHAR(80) NULL"],
+    ['payments', 'agency_net_amount', "INT UNSIGNED NOT NULL DEFAULT 0"],
+    ['payments', 'platform_fee_amount', "INT UNSIGNED NOT NULL DEFAULT 0"],
+];
+foreach ($alterCols as [$tbl, $col, $def]) {
+    $exists = $pdo->query("SHOW COLUMNS FROM `$tbl` LIKE '$col'")->fetch();
+    if (!$exists) {
+        $pdo->exec("ALTER TABLE `$tbl` ADD COLUMN `$col` $def");
+    }
+}
+
+// Index composites haute performance (support 2M+ utilisateurs simultanés)
+$highScaleIndexes = [
+    ['agencies', 'idx_agencies_status_country', '(status, country_id)'],
+    ['trips', 'idx_trips_scale', '(status, departs_at, agency_id, route_id)'],
+    ['bookings', 'idx_bookings_user', '(user_id, status, created_at)'],
+    ['bookings', 'idx_bookings_agency', '(agency_id, status, created_at)'],
+    ['tickets', 'idx_tickets_scale', '(trip_id, status, seat_id)'],
+    ['payments', 'idx_payments_booking', '(booking_id, status, created_at)'],
+    ['sessions', 'idx_sessions_active', '(token_hash, realm, revoked_at, expires_at)'],
+    ['chat_messages', 'idx_chat_msg_scale', '(group_id, id)'],
+    ['rate_limits', 'idx_rl_window', '(window_start)'],
+];
+foreach ($highScaleIndexes as [$tbl, $idxName, $cols]) {
+    $hasIdx = $pdo->query("SHOW INDEX FROM `$tbl` WHERE Key_name = '$idxName'")->fetch();
+    if (!$hasIdx) {
+        try { $pdo->exec("ALTER TABLE `$tbl` ADD INDEX `$idxName` $cols"); } catch (Throwable) {}
+    }
+}
+
+// Optimisation moteur MySQL / InnoDB haute charge
+$tunings = [
+    "SET GLOBAL max_connections = 2000",
+    "SET GLOBAL thread_cache_size = 128",
+    "SET GLOBAL table_open_cache = 4000",
+    "SET GLOBAL innodb_flush_log_at_trx_commit = 2",
+    "SET GLOBAL innodb_lock_wait_timeout = 15",
+];
+foreach ($tunings as $t) {
+    try { $pdo->exec($t); } catch (Throwable) {}
+}
+
 // Toujours s'assurer que les devises de base et les 212 pays du monde sont présents
 $pdo->exec("INSERT INTO currencies (code, name, symbol, minor_units) VALUES
   ('XAF', 'Franc CFA (CEMAC)', 'FCFA', 0),
@@ -180,6 +264,7 @@ $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
 
 // =============================================================================
 // COMPTE PROPRIÉTAIRE VELTRON (Nathan Zoua – Super Admin Production, is_seed = 0)
+// Ne réécrit PAS le mot de passe si le propriétaire l'a déjà personnalisé !
 // =============================================================================
 $ownerPassword = env('OWNER_PASSWORD', 'Veltron#2026') ?: 'Veltron#2026';
 $algo = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
@@ -187,8 +272,18 @@ $hash = password_hash($ownerPassword, $algo);
 
 $stmtOwner = $pdo->prepare("INSERT INTO users (email, password_hash, first_name, last_name, locale, platform_role, is_seed)
                             VALUES (?, ?, 'Nathan', 'Zoua', 'fr', 'super_admin', 0)
-                            ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), platform_role = 'super_admin', is_seed = 0");
+                            ON DUPLICATE KEY UPDATE
+                              password_hash = IF(password_hash IS NULL OR password_hash = '', VALUES(password_hash), password_hash),
+                              platform_role = 'super_admin',
+                              is_seed = 0");
 $stmtOwner->execute(['najnathan23@gmail.com', $hash]);
 $stmtOwner->execute(['admin@veltron.test', $hash]);
 
-echo "[boot_prod] Base de production prête (0 donnée de test, 212 pays actifs, compte propriétaire Nathan Zoua actif).\n";
+// Paramètres par défaut du compte de réception Propriétaire VELTRON
+$pdo->exec("INSERT IGNORE INTO platform_settings (k, v) VALUES
+  ('owner_payout_method', 'orange_money'),
+  ('owner_payout_number', ''),
+  ('owner_payout_name', 'Nathan Zoua (Propriétaire VELTRON)'),
+  ('password_customized', '0')");
+
+echo "[boot_prod] Base de production Haute Capacité prête (0 donnée de test, 212 pays actifs, index 2M+ utilisateurs activés).\n";

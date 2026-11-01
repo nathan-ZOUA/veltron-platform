@@ -1,0 +1,13 @@
+Photos d'arrière-plan (dépose-les ici, .jpg ou .webp, idéalement < 300 Ko, format 16:9).
+Tant qu'une photo est absente, un dégradé s'affiche : rien ne casse.
+Photos libres de droits (Unsplash, Pexels) ou les tiennes, sans marque de transporteur réel visible.
+
+  hero.jpg         Accueil : autocar sur route au coucher du soleil, passagère souriante montrant son billet
+  partner-bus.jpg  Création d'agence : LE beau bus (autocar moderne blanc, vue 3/4 avant, route dégagée,
+                   végétation tropicale, ciel doré, espace vide à gauche pour le texte)
+  agency.jpg       Bannière des pages d'agence (bus ou gare routière)
+  login.jpg        Connexion : voyageur souriant montant dans un bus
+  rental.jpg       Bandeau « location de bus »
+
+Photos de chauffeurs et logos d'agences : dossier  /uploads  (à servir par le serveur web ;
+l'envoi de fichiers par l'interface sera ajouté dans une phase suivante).

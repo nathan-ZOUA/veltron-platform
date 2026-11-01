@@ -10,6 +10,22 @@ import type { TripDetail } from "../core/types";
 
 interface Pax { name: string; id_type: string; id_number: string; phone: string }
 interface Booking { id: number; reference: string; total: number; currency_code: string; expires_at: string }
+interface SavedPayMethod {
+  id: number;
+  provider: string;
+  account_number: string;
+  account_name: string | null;
+  balance: number;
+  currency_code: string;
+  is_default: number | boolean;
+}
+
+const PAY_PROVIDERS = [
+  { id: "orange_money", label: "🍊 Orange Money" },
+  { id: "mtn_momo", label: "💛 MTN Mobile Money" },
+  { id: "wave", label: "🌊 Wave" },
+  { id: "card", label: "💳 Carte Bancaire" },
+];
 
 const MAX_SEATS = 6;
 const emptyPax = (): Pax => ({ name: "", id_type: "CNI", id_number: "", phone: "" });
@@ -24,6 +40,11 @@ export default function TripBooking() {
   const [selected, setSelected] = useState<number[]>([]);
   const [pax, setPax] = useState<Record<number, Pax>>({});
   const [booking, setBooking] = useState<Booking | null>(null);
+  const [savedMethods, setSavedMethods] = useState<SavedPayMethod[]>([]);
+  const [payProvider, setPayProvider] = useState<string>("orange_money");
+  const [payerAccount, setPayerAccount] = useState<string>("");
+  const [payerName, setPayerName] = useState<string>("");
+  const [selectedMethodId, setSelectedMethodId] = useState<number>(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
@@ -31,6 +52,24 @@ export default function TripBooking() {
 
   const load = () => api<TripDetail>(`/trips/${tripId}`).then(setTrip).catch(() => setError(t("common.error")));
   useEffect(() => { load(); }, [tripId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!user) return;
+    setPayerName(`${user.first_name} ${user.last_name}`.trim());
+    if (user.phone) setPayerAccount(user.phone);
+    api<SavedPayMethod[]>("/me/payment-methods", { realm: "passenger" })
+      .then((list) => {
+        setSavedMethods(list);
+        if (list.length > 0) {
+          const def = list.find((m) => m.is_default) ?? list[0];
+          setSelectedMethodId(def.id);
+          setPayProvider(def.provider);
+          setPayerAccount(def.account_number);
+          if (def.account_name) setPayerName(def.account_name);
+        }
+      })
+      .catch(() => {});
+  }, [user]);
 
   useEffect(() => {
     if (!booking) return;
@@ -93,7 +132,13 @@ export default function TripBooking() {
     setBusy(true); setError("");
     try {
       const result = await api<{ ticket_ids: number[]; points_earned?: number }>(`/bookings/${booking.id}/pay`, {
-        body: { provider: "sandbox", idempotency_key: payKey.current },
+        body: {
+          provider: payProvider,
+          payer_account: payerAccount.trim(),
+          payer_name: payerName.trim(),
+          payment_method_id: selectedMethodId || undefined,
+          idempotency_key: payKey.current,
+        },
         realm: "passenger",
       });
       navigate(result.ticket_ids.length === 1 ? `/passager/billet/${result.ticket_ids[0]}` : "/passager/mes-billets");
@@ -196,21 +241,95 @@ export default function TripBooking() {
                 </button>
               ) : (
                 <>
-                  <h2 className="subheading">{t("book.payTitle")}</h2>
+                  <h2 className="subheading">💳 Mode de paiement enregistré (Débit direct → Compte Agence)</h2>
                   <p className="muted">
                     {t("book.timeLeft")} : <strong className="mono">{mm}:{ss}</strong>
                   </p>
+
+                  {savedMethods.length > 0 && (
+                    <label className="field">
+                      <span className="field__label">Utiliser un moyen de paiement déjà enregistré</span>
+                      <select
+                        className="select"
+                        value={selectedMethodId}
+                        onChange={(e) => {
+                          const id = Number(e.target.value);
+                          setSelectedMethodId(id);
+                          const found = savedMethods.find((m) => m.id === id);
+                          if (found) {
+                            setPayProvider(found.provider);
+                            setPayerAccount(found.account_number);
+                            if (found.account_name) setPayerName(found.account_name);
+                          }
+                        }}
+                      >
+                        {savedMethods.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.provider.toUpperCase()} · {m.account_number} (Solde : {money(m.balance)})
+                          </option>
+                        ))}
+                        <option value={0}>+ Enregistrer un nouveau numéro / carte</option>
+                      </select>
+                    </label>
+                  )}
+
                   <div className="pay-methods">
-                    <button type="button" className="chip is-active">{t("book.sandbox")}</button>
-                    {["MTN Mobile Money", "Orange Money", "Carte bancaire"].map((m) => (
-                      <button key={m} type="button" className="chip" disabled>{m} ({t("book.soon")})</button>
+                    {PAY_PROVIDERS.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={payProvider === p.id ? "chip is-active" : "chip"}
+                        onClick={() => {
+                          setPayProvider(p.id);
+                          const match = savedMethods.find((m) => m.provider === p.id);
+                          if (match) {
+                            setSelectedMethodId(match.id);
+                            setPayerAccount(match.account_number);
+                          } else {
+                            setSelectedMethodId(0);
+                          }
+                        }}
+                      >
+                        {p.label}
+                      </button>
                     ))}
                   </div>
+
+                  <div className="search-grid">
+                    <label className="field">
+                      <span className="field__label">
+                        {payProvider === "card" ? "Numéro de carte" : "Numéro Mobile Money à débiter"}
+                      </span>
+                      <input
+                        className="input mono"
+                        required
+                        placeholder={payProvider === "card" ? "4970 •••• •••• 1234" : "+237 6..."}
+                        value={payerAccount}
+                        onChange={(e) => setPayerAccount(e.target.value)}
+                      />
+                    </label>
+                    <label className="field">
+                      <span className="field__label">Nom du titulaire du compte</span>
+                      <input
+                        className="input"
+                        required
+                        placeholder="Nom & Prénom"
+                        value={payerName}
+                        onChange={(e) => setPayerName(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
                   <p className="demo-note">
-                    {t("book.payNote")} Vous gagnerez <strong>{(trip.points_per_trip ?? 10) * selected.length} points fidélité</strong> chez {trip.agency_name}.
+                    ⚡ En validant, <strong>{money(booking.total)}</strong> est <strong>déduit directement de votre compte ({payerAccount || "enregistré"})</strong> et reversé automatiquement sur le compte de l’agence <strong>{trip.agency_name}</strong> (99,5 % net agence, 0,5 % VELTRON). Vous gagnerez <strong>{(trip.points_per_trip ?? 10) * selected.length} points fidélité</strong>.
                   </p>
-                  <button type="button" className="btn btn--lg" disabled={busy || secondsLeft === 0} onClick={pay}>
-                    {t("book.pay")} · {money(booking.total)}
+                  <button
+                    type="button"
+                    className="btn btn--lg"
+                    disabled={busy || secondsLeft === 0 || !payerAccount.trim()}
+                    onClick={pay}
+                  >
+                    Confirmer & Débiter {money(booking.total)} → {trip.agency_name}
                   </button>
                 </>
               )}

@@ -57,6 +57,7 @@ export async function api<T>(path: string, options: Options = {}): Promise<T> {
     method: options.method ?? (options.body !== undefined ? "POST" : "GET"),
     headers: {
       "Content-Type": "application/json",
+      "bypass-tunnel-reminder": "true",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,

@@ -526,7 +526,10 @@ route('POST', '/api/agency/driver/trips/{id}/report', function (array $p) {
 // =============================================================================
 route('GET', '/api/agency/finance', function () {
     $s = require_agency(['owner', 'accountant']);
-    $payments = all("SELECT p.id, p.provider, p.provider_ref, p.amount, p.currency_code, p.status, p.created_at,
+    $ag = one('SELECT payout_method, payout_account_number, payout_account_name, wallet_balance, currency_code, name, phone FROM agencies WHERE id = ?', [$s['agency_id']]);
+
+    $payments = all("SELECT p.id, p.provider, p.provider_ref, p.payer_account, p.agency_payout_account,
+                            p.amount, p.agency_net_amount, p.platform_fee_amount, p.currency_code, p.status, p.created_at,
                             b.reference, b.channel
                      FROM payments p JOIN bookings b ON b.id = p.booking_id
                      WHERE b.agency_id = ? ORDER BY p.id DESC LIMIT 40", [$s['agency_id']]);
@@ -575,10 +578,31 @@ route('GET', '/api/agency/finance', function () {
         'veltron_commission' => $veltronComm,
         'commission_rate_bps' => 50,
         'net' => max(0, $gross - $refunded - $veltronComm),
+        'wallet_balance' => (int) ($ag['wallet_balance'] ?? 0),
+        'payout_settings' => [
+            'payout_method' => $ag['payout_method'] ?: 'orange_money',
+            'payout_account_number' => $ag['payout_account_number'] ?: ($ag['phone'] ?? ''),
+            'payout_account_name' => $ag['payout_account_name'] ?: ($ag['name'] ?? ''),
+        ],
         'payments' => $payments,
         'refunds' => $refunds,
         'commissions' => $commissions,
     ]);
+});
+
+route('POST', '/api/agency/payout-settings', function () {
+    $s = require_agency(['owner', 'accountant']);
+    $in = input();
+    $pm = strtolower(trim((string) ($in['payout_method'] ?? 'orange_money')));
+    if (!in_array($pm, ['orange_money', 'mtn_momo', 'wave', 'bank_transfer', 'card'], true)) $pm = 'orange_money';
+    $accNum = str_in($in['payout_account_number'] ?? '', 80);
+    $accName = str_in($in['payout_account_name'] ?? '', 120);
+    if ($accNum === '') fail(422, 'missing_account', 'Veuillez renseigner le numéro ou IBAN du compte de réception de l\'agence.');
+
+    q('UPDATE agencies SET payout_method = ?, payout_account_number = ?, payout_account_name = ? WHERE id = ?',
+        [$pm, $accNum, $accName ?: null, $s['agency_id']]);
+    audit((int) $s['id'], $s['agency_id'], 'agency.payout_settings', 'agency', $s['agency_id'], ['method' => $pm]);
+    json_out(['ok' => true]);
 });
 
 route('GET', '/api/agency/rentals', function () {

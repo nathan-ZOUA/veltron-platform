@@ -42,6 +42,9 @@ export default function Partner() {
     country_id: 0,
     currency_code: "XAF",
     primary_color: "#1E8A5E",
+    payout_method: "orange_money",
+    payout_account_number: "",
+    payout_account_name: "",
   });
 
   const [owner, setOwner] = useState({
@@ -534,6 +537,47 @@ export default function Partner() {
                         onChange={(e) => setOwner({ ...owner, password: e.target.value })}
                       />
                     </label>
+
+                    <div className="card form-grid" style={{ padding: 14 }}>
+                      <strong>💳 Compte de réception des paiements de l’agence (versement direct)</strong>
+                      <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                        Lorsqu’un passager achète un billet en ligne, l’argent est directement déduit de son compte et versé sur ce compte de l’agence (net des 0,5 % VELTRON).
+                      </p>
+                      <div className="search-grid">
+                        <label className="field">
+                          <span className="field__label">Mode de réception</span>
+                          <select
+                            className="select"
+                            value={agency.payout_method}
+                            onChange={(e) => setAgency({ ...agency, payout_method: e.target.value })}
+                          >
+                            <option value="orange_money">🍊 Orange Money</option>
+                            <option value="mtn_momo">💛 MTN Mobile Money</option>
+                            <option value="wave">🌊 Wave</option>
+                            <option value="bank_transfer">🏦 Virement Bancaire / IBAN</option>
+                            <option value="card">💳 Carte / Stripe</option>
+                          </select>
+                        </label>
+                        <label className="field">
+                          <span className="field__label">Numéro Mobile Money ou IBAN de l’agence</span>
+                          <input
+                            className="input"
+                            placeholder={agency.phone || "+237 690 00 00 00"}
+                            value={agency.payout_account_number}
+                            onChange={(e) => setAgency({ ...agency, payout_account_number: e.target.value })}
+                          />
+                        </label>
+                        <label className="field">
+                          <span className="field__label">Titulaire du compte</span>
+                          <input
+                            className="input"
+                            placeholder={agency.name || "Nom de la compagnie"}
+                            value={agency.payout_account_name}
+                            onChange={(e) => setAgency({ ...agency, payout_account_name: e.target.value })}
+                          />
+                        </label>
+                      </div>
+                    </div>
 
                     <div className="demo-note" style={{ display: "grid", gap: 8 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>

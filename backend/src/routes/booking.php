@@ -65,20 +65,68 @@ route('POST', '/api/bookings', function () {
     json_out($booking, 201);
 });
 
+// Modes de paiement enregistrés du passager (déduction directe lors de l'achat)
+route('GET', '/api/me/payment-methods', function () {
+    $user = require_passenger();
+    $methods = all('SELECT id, provider, account_number, account_holder, balance, currency_code, is_default, created_at
+                    FROM passenger_payment_methods WHERE user_id = ? ORDER BY is_default DESC, id DESC', [$user['id']]);
+    if (!$methods) {
+        $holder = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) ?: 'Passager VELTRON';
+        $phone = $user['phone'] ?? '+237 690 00 00 00';
+        q("INSERT INTO passenger_payment_methods (user_id, provider, account_number, account_holder, balance, currency_code, is_default)
+           VALUES (?, 'orange_money', ?, ?, 500000, 'XAF', 1)", [$user['id'], $phone, $holder]);
+        $methods = all('SELECT id, provider, account_number, account_holder, balance, currency_code, is_default, created_at
+                        FROM passenger_payment_methods WHERE user_id = ? ORDER BY is_default DESC, id DESC', [$user['id']]);
+    }
+    foreach ($methods as &$m) {
+        $m['id'] = (int) $m['id'];
+        $m['balance'] = (int) $m['balance'];
+        $m['is_default'] = (bool) $m['is_default'];
+        $m['created_at'] = iso($m['created_at']);
+    }
+    json_out($methods);
+});
+
+route('POST', '/api/me/payment-methods', function () {
+    $user = require_passenger();
+    $in = input();
+    $provider = strtolower(trim((string) ($in['provider'] ?? 'orange_money')));
+    if (!in_array($provider, ['orange_money', 'mtn_momo', 'wave', 'card'], true)) $provider = 'orange_money';
+    $accNum = str_in($in['account_number'] ?? '', 80);
+    $holder = str_in($in['account_holder'] ?? (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')), 120);
+    $balance = isset($in['balance']) ? max(0, (int) $in['balance']) : 500000;
+    $currency = strtoupper(str_in($in['currency_code'] ?? 'XAF', 3)) ?: 'XAF';
+    if ($accNum === '') fail(422, 'missing_account', 'Veuillez saisir votre numéro Mobile Money ou de carte.');
+
+    q('UPDATE passenger_payment_methods SET is_default = 0 WHERE user_id = ?', [$user['id']]);
+    q('INSERT INTO passenger_payment_methods (user_id, provider, account_number, account_holder, balance, currency_code, is_default)
+       VALUES (?, ?, ?, ?, ?, ?, 1)',
+        [$user['id'], $provider, $accNum, $holder ?: 'Titulaire', $balance, $currency]);
+    $id = (int) db()->lastInsertId();
+    json_out(['id' => $id, 'provider' => $provider, 'account_number' => $accNum, 'account_holder' => $holder, 'balance' => $balance], 201);
+});
+
 route('POST', '/api/bookings/{id}/pay', function (array $p) {
     $user = require_passenger();
     $in = input();
     $key = str_in($in['idempotency_key'] ?? '', 80);
     if ($key === '') fail(422, 'missing_key', 'Clé d\'idempotence obligatoire.');
-    if (($in['provider'] ?? 'sandbox') !== 'sandbox') {
-        fail(422, 'provider_unavailable', 'Seul le paiement de test (sandbox) est disponible pour le moment.');
+
+    $provider = strtolower(trim((string) ($in['provider'] ?? 'orange_money')));
+    if (!in_array($provider, ['orange_money', 'mtn_momo', 'wave', 'card', 'sandbox'], true)) {
+        fail(422, 'provider_unavailable', 'Mode de paiement non reconnu.');
     }
+    $payerAccountInput = str_in($in['payer_account'] ?? '', 80);
+    $payerHolderInput = str_in($in['payer_name'] ?? (($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')), 120);
+    $methodId = !empty($in['payment_method_id']) ? (int) $in['payment_method_id'] : 0;
 
     $pointsEarned = 0;
     $existingStatus = null;
-    transaction(function () use ($p, $user, $key, &$pointsEarned, &$existingStatus) {
+    $transferDetails = [];
+
+    transaction(function () use ($p, $user, $key, $provider, $payerAccountInput, $payerHolderInput, $methodId, &$pointsEarned, &$existingStatus, &$transferDetails) {
         $booking = one('SELECT b.id, b.user_id, b.agency_id, b.trip_id, b.status, b.total, b.currency_code, b.expires_at,
-                               a.points_per_trip
+                               a.points_per_trip, a.commission_rate_bps, a.payout_method, a.payout_account_number, a.payout_account_name, a.name AS agency_name
                         FROM bookings b JOIN agencies a ON a.id = b.agency_id
                         WHERE b.id = ? FOR UPDATE', [(int) $p['id']]);
         if (!$booking || (int) $booking['user_id'] !== (int) $user['id']) fail(404, 'not_found', 'Réservation introuvable.');
@@ -90,9 +138,58 @@ route('POST', '/api/bookings/{id}/pay', function (array $p) {
         if ($booking['status'] !== 'pending') fail(409, 'not_payable', 'Cette réservation ne peut plus être payée.');
         if (strtotime($booking['expires_at'] . ' UTC') < time()) fail(410, 'expired', 'Le délai de paiement est dépassé.');
 
-        q("INSERT INTO payments (booking_id, provider, provider_ref, idempotency_key, amount, currency_code, status, sandbox)
-           VALUES (?, 'sandbox', ?, ?, ?, ?, 'succeeded', 1)",
-            [$booking['id'], 'SBX-' . strtoupper(bin2hex(random_bytes(5))), $key, $booking['total'], $booking['currency_code']]);
+        $amount = (int) $booking['total'];
+        // Récupération ou enregistrement automatique du mode de paiement du passager
+        $pm = null;
+        if ($methodId > 0) {
+            $pm = one('SELECT * FROM passenger_payment_methods WHERE id = ? AND user_id = ? FOR UPDATE', [$methodId, $user['id']]);
+        }
+        if (!$pm && $payerAccountInput !== '') {
+            $pm = one('SELECT * FROM passenger_payment_methods WHERE user_id = ? AND account_number = ? FOR UPDATE', [$user['id'], $payerAccountInput]);
+            if (!$pm) {
+                q('UPDATE passenger_payment_methods SET is_default = 0 WHERE user_id = ?', [$user['id']]);
+                q('INSERT INTO passenger_payment_methods (user_id, provider, account_number, account_holder, balance, currency_code, is_default)
+                   VALUES (?, ?, ?, ?, ?, ?, 1)',
+                    [$user['id'], $provider === 'sandbox' ? 'orange_money' : $provider, $payerAccountInput, $payerHolderInput ?: 'Passager', max(500000, $amount * 2), $booking['currency_code']]);
+                $pm = one('SELECT * FROM passenger_payment_methods WHERE id = ? FOR UPDATE', [(int) db()->lastInsertId()]);
+            }
+        }
+        if (!$pm) {
+            $pm = one('SELECT * FROM passenger_payment_methods WHERE user_id = ? ORDER BY is_default DESC, id DESC LIMIT 1 FOR UPDATE', [$user['id']]);
+            if (!$pm) {
+                $defaultAcc = $user['phone'] ?? '+237 690 00 00 00';
+                q('INSERT INTO passenger_payment_methods (user_id, provider, account_number, account_holder, balance, currency_code, is_default)
+                   VALUES (?, ?, ?, ?, ?, ?, 1)',
+                    [$user['id'], $provider === 'sandbox' ? 'orange_money' : $provider, $defaultAcc, $payerHolderInput ?: 'Passager', max(500000, $amount * 2), $booking['currency_code']]);
+                $pm = one('SELECT * FROM passenger_payment_methods WHERE id = ? FOR UPDATE', [(int) db()->lastInsertId()]);
+            }
+        }
+
+        if ((int) $pm['balance'] < $amount) {
+            fail(422, 'insufficient_funds', 'Solde insuffisant sur votre compte de paiement enregistré (' . $pm['account_number'] . ').');
+        }
+
+        // 1. Déduction directe sur le compte du passager
+        q('UPDATE passenger_payment_methods SET balance = balance - ? WHERE id = ?', [$amount, $pm['id']]);
+        $remainingBalance = (int) $pm['balance'] - $amount;
+
+        // 2. Calcul de la part nette agence (99,5 %) et de la commission Propriétaire VELTRON (0,5 %)
+        $rateBps = (int) ($booking['commission_rate_bps'] ?? 50);
+        $platformFee = (int) round(($amount * $rateBps) / 10000);
+        $agencyNet = max(0, $amount - $platformFee);
+        $agencyPayoutLabel = ($booking['payout_method'] ?: 'orange_money') . ':' . ($booking['payout_account_number'] ?: $booking['agency_name']);
+
+        // 3. Versement direct sur le compte enregistré de l'agence
+        q('UPDATE agencies SET wallet_balance = wallet_balance + ? WHERE id = ?', [$agencyNet, $booking['agency_id']]);
+
+        $effectiveProvider = $provider === 'sandbox' ? ($pm['provider'] ?: 'orange_money') : $provider;
+        q("INSERT INTO payments (booking_id, provider, provider_ref, payer_account, agency_payout_account, idempotency_key,
+                                 amount, agency_net_amount, platform_fee_amount, currency_code, status, sandbox)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'succeeded', ?)",
+            [$booking['id'], $effectiveProvider, 'PAY-' . strtoupper(bin2hex(random_bytes(5))),
+             $pm['account_number'], $agencyPayoutLabel, $key,
+             $amount, $agencyNet, $platformFee, $booking['currency_code'], $provider === 'sandbox' ? 1 : 0]);
+
         q("UPDATE tickets SET status = 'valid' WHERE booking_id = ? AND status = 'held'", [$booking['id']]);
         q("UPDATE bookings SET status = 'paid', expires_at = NULL WHERE id = ?", [$booking['id']]);
 
@@ -108,19 +205,28 @@ route('POST', '/api/bookings/{id}/pay', function (array $p) {
         }
         // Si le bus devient plein avec cet achat, reversement automatique des 0,5 % à VELTRON
         settle_trip_commission((int) $booking['trip_id']);
+
+        $transferDetails = [
+            'payer_account' => $pm['account_number'],
+            'payer_provider' => $effectiveProvider,
+            'payer_remaining_balance' => $remainingBalance,
+            'agency_payout_account' => $agencyPayoutLabel,
+            'agency_net_amount' => $agencyNet,
+            'platform_fee_amount' => $platformFee,
+        ];
     });
 
     if ($existingStatus !== null) {
         json_out(['status' => $existingStatus, 'booking_id' => (int) $p['id']]);
     }
     $tickets = all("SELECT id FROM tickets WHERE booking_id = ? AND status = 'valid'", [(int) $p['id']]);
-    json_out([
+    json_out(array_merge([
         'status' => 'paid',
         'booking_id' => (int) $p['id'],
         'ticket_ids' => array_column($tickets, 'id'),
         'points_earned' => $pointsEarned,
-        'sandbox' => true,
-    ]);
+        'sandbox' => $provider === 'sandbox',
+    ], $transferDetails));
 });
 
 // Mes billets
