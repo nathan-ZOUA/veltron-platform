@@ -1,0 +1,121 @@
+/* ==========================================================================
+   PAGE SUIVI EN DIRECT
+   ========================================================================== */
+
+.tracking-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.map-card {
+  padding: var(--space-3);
+  overflow: hidden;
+}
+
+.route-map {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+/* Éléments SVG : ils utilisent les variables du thème */
+.map-grid-line {
+  stroke: var(--border);
+  opacity: 0.55;
+}
+
+.route-base {
+  stroke: var(--border-strong);
+}
+
+.route-flow {
+  stroke: var(--text-faint);
+  stroke-dasharray: 10 14;
+  animation: dash-flow 1.6s linear infinite;
+}
+
+.route-done {
+  stroke: var(--accent);
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+}
+
+.city-dot {
+  fill: var(--bg);
+  stroke: var(--accent-soft);
+  stroke-width: 3;
+}
+
+.city-label {
+  fill: var(--text);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.bus-dot {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.bus-pulse {
+  fill: var(--accent);
+  opacity: 0.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+/* ---------- Panneau d'informations ---------- */
+.tracking-panel {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.stat-list {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.stat-list > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.stat-list dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.progress {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.progress__bar {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+
+.tracking-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+@media (max-width: 960px) {
+  .tracking-layout {
+    grid-template-columns: 1fr;
+  }
+}

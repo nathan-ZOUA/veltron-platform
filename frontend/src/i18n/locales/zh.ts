@@ -1,0 +1,165 @@
+import type { DeepPartial, Translation } from "./fr";
+
+// 简体中文
+export const zh: DeepPartial<Translation> = {
+  app: { name: "VELTRON", tagline: "Move smarter. Travel better." },
+
+  nav: {
+    home: "首页",
+    booking: "订票",
+    tracking: "实时追踪",
+    dashboard: "控制台",
+    login: "登录",
+    menu: "打开菜单",
+  },
+
+  common: {
+    simulated: "模拟",
+    demoData: "演示数据",
+    themeToLight: "切换到浅色主题",
+    themeToDark: "切换到深色主题",
+    language: "切换语言",
+    currency: "非洲法郎",
+  },
+
+  cities: {
+    douala: "杜阿拉",
+    yaounde: "雅温得",
+    bafoussam: "巴富萨姆",
+    kribi: "克里比",
+    limbe: "林贝",
+    bertoua: "贝尔图阿",
+  },
+
+  hero: {
+    badge: "在线城际运输",
+    title1: "出行更好，",
+    title2: "行动更智能。",
+    text: "VELTRON 将乘客、运输公司和司机连接在一起：车票预订、巴士实时追踪、车辆租赁与销售。",
+    ctaPrimary: "预订行程",
+    ctaSecondary: "查看实时追踪",
+    tickerLabel: "演示行程",
+  },
+
+  features: {
+    title: "一个平台，覆盖整个运输业务",
+    note: "VELTRON 的各个模块覆盖出行的完整流程。",
+    items: [
+      { title: "车票预订", text: "搜索行程、选择座位，并获得带二维码的车票。" },
+      { title: "实时追踪", text: "在地图上跟踪每辆巴士，延误或偏离路线时收到提醒。" },
+      { title: "车队管理", text: "巴士、司机、证件和维护集中在一处。" },
+      { title: "巴士租赁", text: "申请报价、查看可用情况并在线确认。" },
+      { title: "巴士销售", text: "发布或浏览新车和二手巴士的信息。" },
+      { title: "可追溯的支付", text: "移动支付、银行卡或现金：每笔付款都会被记录并核验。" },
+    ],
+  },
+
+  how: {
+    title: "从出发到抵达，只需三步",
+    items: [
+      { title: "搜索", text: "输入出发城市、目的地和日期。" },
+      { title: "选择", text: "比较时刻表和票价，然后选择座位。" },
+      { title: "出行", text: "登车时出示二维码，并实时跟踪巴士。" },
+    ],
+  },
+
+  rental: {
+    title: "团体需要一辆巴士？",
+    text: "婚礼、郊游、研讨会：申请报价，并从可用巴士中选择。",
+    cta: "即将推出",
+  },
+
+  contact: {
+    title1: "心中有个项目？",
+    title2: "让我们一起打造有用的东西。",
+    text: "简单介绍一下你正在做的事情。我很乐意交流想法，看看如何帮到你。",
+    email: "邮箱",
+    whatsapp: "WhatsApp",
+    github: "GitHub",
+    whatsappLink: "在 WhatsApp 上联系我",
+    githubLink: "访问我的主页",
+    notice: "此表单仅为视觉预览，未连接任何邮件服务。",
+    name: "你的姓名",
+    namePlaceholder: "我该怎么称呼你？",
+    mail: "你的邮箱",
+    mailPlaceholder: "you@example.com",
+    message: "你的留言",
+    messagePlaceholder: "简单说说你的想法……",
+    preview: "预览留言",
+    previewTitle: "留言预览",
+  },
+
+  booking: {
+    title: "预订行程",
+    subtitle: "先选行程，再选座位。",
+    from: "出发地",
+    to: "目的地",
+    date: "日期",
+    results: "可选行程",
+    noResults: "该线路暂无行程，请尝试其他目的地。",
+    sameCity: "出发地和目的地必须不同。",
+    departure: "出发",
+    arrival: "到达",
+    perSeat: "每座",
+    selectTrip: "选择此行程",
+    seatsTitle: "选择座位",
+    seatsHint: "选择一个或多个空座位。",
+    free: "空闲",
+    taken: "已占",
+    selected: "已选",
+    front: "车头",
+    total: "合计",
+    noSeat: "尚未选择座位",
+    reserve: "预订（模拟）",
+    reserved: "模拟预订：未生成任何真实车票。",
+    noTripYet: "请先从列表中选择一个行程。",
+  },
+
+  tracking: {
+    title: "实时追踪",
+    subtitle: "一辆演示巴士正在杜阿拉 – 雅温得线路上行驶。",
+    notice: "模拟位置：并非真实 GPS 信号。示意地图，未按比例绘制。",
+    vehicle: "车辆",
+    speed: "速度（模拟）",
+    progress: "进度",
+    status: "状态",
+    moving: "行驶中",
+    paused: "已暂停",
+    arrived: "已到达",
+    lastUpdate: "最后更新",
+    pause: "暂停",
+    resume: "继续",
+    restart: "重新开始",
+  },
+
+  dashboard: {
+    title: "控制台",
+    subtitle: "运营商业务概览。",
+    notice: "以下所有数字均为演示数据，并非真实统计。",
+    vehicles: "车辆",
+    trips: "进行中的行程",
+    bookings: "预订",
+    revenue: "收入",
+    occupancy: "上座率",
+    chartTitle: "每日预订量",
+    days: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"],
+  },
+
+  login: {
+    title: "欢迎回来",
+    subtitle: "登录以进入你的工作区。",
+    email: "邮箱地址",
+    password: "密码",
+    submit: "登录",
+    rolesTitle: "要体验的空间（演示）",
+    roles: ["乘客", "司机", "运营商", "管理员"],
+    notice: "演示：目前未连接任何真实账户或服务器。",
+    success: "模拟登录成功，身份为",
+    visualTitle: "你的下一段旅程从这里开始。",
+  },
+
+  footer: {
+    rights: "保留所有权利。",
+    madeBy: "设计与开发：",
+  },
+};

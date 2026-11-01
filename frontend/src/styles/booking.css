@@ -1,0 +1,180 @@
+/* ==========================================================================
+   PAGE RÉSERVATION
+   ========================================================================== */
+
+.booking-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.booking-main {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.search-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-4);
+}
+
+/* ---------- Liste des trajets ---------- */
+.trip-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.trip {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-5);
+  transition: border-color var(--duration-base), box-shadow var(--duration-base);
+}
+
+.trip--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+
+.trip__times {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.trip__times div {
+  display: grid;
+}
+
+.trip__times strong {
+  font-size: var(--text-lg);
+}
+
+.trip__arrow {
+  color: var(--text-faint);
+  font-size: var(--text-lg);
+}
+
+.trip__meta {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.trip > .btn {
+  grid-column: 1 / -1;
+}
+
+/* ---------- Plan de sièges ---------- */
+.seat-panel {
+  position: sticky;
+  top: calc(var(--header-height) + var(--space-5));
+  display: grid;
+  gap: var(--space-4);
+}
+
+.seat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.seat-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.bus-front {
+  text-align: center;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill) var(--radius-pill) var(--radius-sm) var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.seat-map {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.seat-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 28px 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.seat {
+  height: 38px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px 9px 5px 5px;
+  background: var(--surface);
+  font-size: var(--text-xs);
+  transition: background var(--duration-fast), transform var(--duration-fast) var(--ease-out);
+}
+
+.seat:hover:not(:disabled) {
+  background: var(--surface-hover);
+  transform: translateY(-2px);
+}
+
+.seat--selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.seat--taken {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--bg-elevated),
+    var(--bg-elevated) 4px,
+    var(--border) 4px,
+    var(--border) 8px
+  );
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.seat:disabled:not(.seat--taken) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.seat--legend {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+
+.summary {
+  display: grid;
+  gap: var(--space-3);
+}
+
+@media (max-width: 960px) {
+  .booking-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .seat-panel {
+    position: static;
+  }
+}

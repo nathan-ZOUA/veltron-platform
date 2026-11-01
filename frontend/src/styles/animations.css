@@ -1,0 +1,75 @@
+/* ==========================================================================
+   ANIMATIONS CSS (les animations d'entrée complexes sont dans Framer Motion).
+   Ici : animations en boucle et effets de survol.
+   ========================================================================== */
+
+/* Flottement lent (formes décoratives) */
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-18px) rotate(3deg); }
+}
+
+/* Pulsation (point "en direct", bus sur la carte) */
+@keyframes pulse-ring {
+  0%   { transform: scale(0.6); opacity: 0.8; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Reflet qui traverse un bouton ou un texte */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Défilement des pointillés de la route */
+@keyframes dash-flow {
+  to { stroke-dashoffset: -48; }
+}
+
+/* Chargement (squelette) */
+@keyframes skeleton {
+  0%   { opacity: 0.45; }
+  50%  { opacity: 0.9; }
+  100% { opacity: 0.45; }
+}
+
+.float-slow {
+  animation: float 9s ease-in-out infinite;
+}
+
+.live-dot {
+  position: relative;
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--warning);
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+.skeleton {
+  background: var(--surface-hover);
+  border-radius: var(--radius-sm);
+  animation: skeleton 1.4s ease-in-out infinite;
+}
+
+/* Respect de l'accessibilité : l'utilisateur peut réduire les animations
+   depuis les réglages de son système. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

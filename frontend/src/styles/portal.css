@@ -1,0 +1,565 @@
+/* ==========================================================================
+   PORTAILS : agences, réservation, billet, guichet, création d'agence, admin
+   ========================================================================== */
+
+/* ---------- Effets globaux : reflet sur les boutons, liens, erreurs ---------- */
+.btn {
+  position: relative;
+  overflow: hidden;
+}
+.btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 700ms var(--ease-out);
+}
+.btn:hover:not(:disabled)::after {
+  transform: translateX(120%);
+}
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent-soft);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+.error {
+  color: var(--danger);
+  font-weight: 500;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.input--sm {
+  width: 110px;
+  padding: 0.35rem 0.6rem;
+  font-size: var(--text-sm);
+}
+.star {
+  color: var(--warning);
+}
+.plain-list {
+  margin: 0;
+  padding-inline-start: 1.1rem;
+  display: grid;
+  gap: var(--space-2);
+}
+.header-auth {
+  padding: 0.55rem 1.1rem;
+}
+
+/* ---------- Photos : bannières agence et création d'agence ---------- */
+.photo-bg--agency .photo-bg__image {
+  background-image: var(--photo-agency),
+    radial-gradient(ellipse at 15% 30%, var(--accent-glow), transparent 60%),
+    radial-gradient(ellipse at 90% 80%, var(--accent-glow), transparent 55%);
+}
+.photo-bg--partner .photo-bg__image {
+  background-image: var(--photo-partner),
+    radial-gradient(ellipse at 25% 25%, var(--accent-glow), transparent 55%);
+}
+
+/* ---------- Annuaire des agences ---------- */
+.agency-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-5);
+}
+.agency-card {
+  position: relative;
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: transform var(--duration-base) var(--ease-out), border-color var(--duration-base),
+    box-shadow var(--duration-base);
+}
+/* Liseré de la couleur de l'agence qui s'étire au survol */
+.agency-card::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 5px;
+  background: var(--accent);
+  transform-origin: left;
+  transform: scaleX(0.25);
+  transition: transform var(--duration-slow) var(--ease-out);
+}
+.agency-card:hover {
+  transform: translateY(-8px) rotate(-0.4deg);
+  border-color: var(--accent);
+  box-shadow: 0 22px 44px var(--accent-glow);
+}
+.agency-card:hover::before {
+  transform: scaleX(1);
+}
+.agency-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.agency-card__logo {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-family: var(--font-display);
+  font-weight: 800;
+  overflow: hidden;
+  transition: transform var(--duration-base) var(--ease-out);
+}
+.agency-card:hover .agency-card__logo {
+  transform: rotate(-8deg) scale(1.08);
+}
+.agency-card__logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.agency-card__logo--lg {
+  width: 84px;
+  height: 84px;
+  font-size: 1.8rem;
+  border-radius: 24px;
+}
+.agency-card__name {
+  font-size: var(--text-xl);
+}
+.agency-card__cta {
+  color: var(--accent-soft);
+  font-weight: 700;
+  transition: letter-spacing var(--duration-base);
+}
+.agency-card:hover .agency-card__cta {
+  letter-spacing: 0.02em;
+}
+
+/* ---------- Page d'une agence ---------- */
+.agency-hero {
+  padding-block: var(--space-8) var(--space-7);
+}
+.agency-hero__content {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+}
+.agency-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+.side-stack {
+  display: grid;
+  gap: var(--space-5);
+}
+.trip__buy {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: end;
+}
+.trip__price {
+  font-size: var(--text-lg);
+  color: var(--accent-soft);
+}
+.trip {
+  grid-template-columns: auto 1fr auto;
+}
+.drivers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+.driver {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--accent);
+  transition: transform var(--duration-base) var(--ease-out);
+}
+.avatar--initials {
+  display: inline-grid;
+  place-items: center;
+  background: var(--surface-hover);
+  color: var(--accent-soft);
+  font-weight: 700;
+}
+.driver:hover .avatar {
+  transform: scale(1.18);
+}
+.review {
+  margin: 0 0 var(--space-4);
+  padding-inline-start: var(--space-4);
+  border-inline-start: 3px solid var(--accent);
+}
+
+/* ---------- Réservation : sièges et passagers ---------- */
+.seat--paid {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+.seat--boarded {
+  background: var(--success);
+  border-color: var(--success);
+  color: #11231b;
+}
+.seat--noshow {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #2a1313;
+}
+.seat--vip {
+  border-color: var(--warning);
+}
+.seat--selected {
+  animation: seat-pop 320ms var(--ease-out);
+}
+@keyframes seat-pop {
+  0% { transform: scale(0.8); }
+  60% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+.pax {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin: 0;
+}
+.pax legend {
+  padding-inline: var(--space-2);
+  color: var(--accent-soft);
+}
+.pay-methods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---------- Billet ---------- */
+.ticket-page {
+  max-width: 880px;
+  perspective: 1200px;
+}
+.ticket {
+  background: #ffffff;
+  color: #15161d;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  border-top: 10px solid var(--accent);
+}
+.ticket__head,
+.ticket__route,
+.ticket__body {
+  padding: var(--space-5) var(--space-6);
+}
+.ticket__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ticket__agency {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+}
+.ticket .muted {
+  color: #646579;
+}
+.ticket__route {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  border-block: 2px dashed #d8d4e4;
+}
+.ticket__route > div {
+  display: grid;
+}
+.ticket__route strong {
+  font-size: var(--text-xl);
+}
+.ticket__body {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-6);
+  align-items: center;
+}
+.ticket__qr {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
+  max-width: 200px;
+  text-align: center;
+  font-size: var(--text-xs);
+}
+.ticket .stat-list > div {
+  border-color: #e6e2f0;
+}
+.ticket-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.stamp {
+  display: inline-block;
+  padding: 0.25rem 0.8rem;
+  border: 2px solid currentColor;
+  border-radius: 8px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transform: rotate(-4deg);
+  animation: stamp-in 600ms var(--ease-out) both;
+}
+.stamp--valid { color: #2a8a5f; }
+.stamp--boarded { color: #2f6fdb; }
+.stamp--no_show, .stamp--cancelled, .stamp--expired { color: #c24848; }
+.stamp--transferred, .stamp--refunded, .stamp--held { color: #b9831f; }
+@keyframes stamp-in {
+  0% { transform: rotate(-14deg) scale(2.2); opacity: 0; }
+  100% { transform: rotate(-4deg) scale(1); opacity: 1; }
+}
+
+/* ---------- Guichet ---------- */
+.desk {
+  grid-template-columns: 300px minmax(0, 1fr);
+  align-items: start;
+}
+.desk__trips {
+  display: grid;
+  gap: var(--space-2);
+  position: sticky;
+  top: calc(var(--header-height) + var(--space-4));
+}
+.desk__main {
+  display: grid;
+  gap: var(--space-5);
+}
+.desk-trip {
+  display: grid;
+  gap: 2px;
+  text-align: start;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  transition: transform var(--duration-fast) var(--ease-out), border-color var(--duration-fast);
+}
+.desk-trip:hover {
+  transform: translateX(4px);
+  border-color: var(--accent-soft);
+}
+.desk-trip.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.desk-scan {
+  display: flex;
+  gap: var(--space-3);
+}
+.call-card {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  border-color: var(--accent);
+}
+.call-card__ref {
+  font-size: var(--text-2xl);
+  color: var(--accent-soft);
+}
+.call-card__name {
+  font-size: var(--text-lg);
+}
+.call-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.desk-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.call-list {
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+}
+.call-row {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast);
+}
+.call-row:hover {
+  background: var(--surface-hover);
+}
+.call-row--boarded {
+  border-inline-start: 4px solid var(--success);
+}
+.call-row--no_show {
+  border-inline-start: 4px solid var(--danger);
+  opacity: 0.75;
+}
+.call-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* ---------- Création d'agence ---------- */
+.partner {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  min-height: calc(100vh - var(--header-height));
+}
+.partner__visual {
+  display: flex;
+  align-items: center;
+  padding: var(--space-7);
+}
+.partner__visual-content {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 640px;
+}
+.partner__form {
+  display: grid;
+  place-items: center;
+  padding: var(--space-7) var(--space-5);
+}
+.partner__form > * {
+  width: min(100%, 520px);
+}
+.livery {
+  width: 100%;
+  height: auto;
+  filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.35));
+}
+.livery__body {
+  animation: bus-idle 3.2s ease-in-out infinite;
+}
+.livery__wheel {
+  animation: wheel-spin 2.4s linear infinite;
+}
+@keyframes bus-idle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes wheel-spin {
+  to { transform: rotate(360deg); }
+}
+.stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.stepper li.is-active {
+  color: var(--accent-soft);
+  font-weight: 700;
+}
+.stepper li.is-done {
+  color: var(--text-muted);
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+.swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.swatch:hover {
+  transform: scale(1.15);
+}
+.swatch.is-active {
+  border-color: var(--text);
+}
+.wizard-actions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 960px) {
+  .agency-layout,
+  .desk,
+  .desk-grid,
+  .partner {
+    grid-template-columns: 1fr;
+  }
+  .desk__trips {
+    position: static;
+  }
+  .trip {
+    grid-template-columns: 1fr;
+  }
+  .trip__buy {
+    justify-items: start;
+  }
+  .ticket__body {
+    grid-template-columns: 1fr;
+  }
+  .partner__visual {
+    padding: var(--space-6) var(--space-5);
+  }
+}
+
+/* ---------- Impression du billet : fond blanc, sans menus ---------- */
+@media print {
+  .site-header,
+  .site-footer,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff;
+  }
+  .ticket {
+    box-shadow: none;
+    border: 1px solid #999;
+  }
+}

@@ -1,0 +1,855 @@
+/* ==========================================================================
+   VELTRON V2 — Portail d'entrée, cartes photo interactives, modales PIN,
+   suivi temps réel, espace agence 6 rôles & messagerie E2EE multi-thèmes.
+   ========================================================================== */
+
+/* ---------- Vidéo héros en arrière-plan ---------- */
+.hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: -2;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.photo-bg__image--custom {
+  background-image: var(--photo-custom),
+    radial-gradient(ellipse at 20% 25%, var(--accent-glow), transparent 60%);
+}
+
+/* ---------- 1. ÉCRAN D'OUVERTURE (GATEWAY : PASSAGER vs AGENCE) ---------- */
+.gateway {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  isolation: isolate;
+  overflow: hidden;
+  background: #141622;
+  color: #f4f2fa;
+}
+
+.gateway__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: -2;
+  filter: saturate(1.12) contrast(1.05);
+}
+
+.gateway__veil {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at 20% 15%, rgba(140, 107, 184, 0.36), transparent 55%),
+    radial-gradient(ellipse at 85% 80%, rgba(45, 160, 130, 0.25), transparent 55%),
+    linear-gradient(180deg, rgba(16, 18, 28, 0.68) 0%, rgba(18, 20, 32, 0.88) 70%, #141622 100%);
+}
+
+.gateway__topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-block: var(--space-5);
+}
+
+.gateway__center {
+  display: grid;
+  gap: var(--space-7);
+  align-content: center;
+  padding-block: var(--space-5) var(--space-7);
+}
+
+.gateway__intro {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+  max-width: 760px;
+}
+
+.gateway__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+}
+
+.gateway__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-block: var(--space-5);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.gateway__owner-link {
+  font-size: var(--text-xs);
+  color: rgba(244, 242, 250, 0.65);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  transition: color var(--duration-fast);
+}
+.gateway__owner-link:hover {
+  color: #ffffff;
+}
+
+/* ---------- 2. CARTES CLIQUABLES AVEC PHOTO D'ARRIÈRE-PLAN (VisualCard) ---------- */
+.VisualCard {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-height: 280px;
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+  isolation: isolate;
+  color: #ffffff;
+  box-shadow: 0 20px 44px rgba(7, 9, 18, 0.36);
+  transition:
+    transform 460ms var(--ease-out),
+    border-color 320ms var(--ease-out),
+    box-shadow 460ms var(--ease-out);
+}
+
+.VisualCard--tall {
+  min-height: 410px;
+}
+
+.VisualCard__bg {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image: var(--card-bg);
+  background-size: cover;
+  background-position: center;
+  transform: scale(1.01);
+  transition: transform 720ms var(--ease-out), filter 500ms var(--ease-out);
+}
+
+.VisualCard__shade {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    180deg,
+    rgba(12, 14, 24, 0.18) 0%,
+    rgba(14, 16, 28, 0.72) 52%,
+    rgba(12, 14, 24, 0.95) 100%
+  );
+  transition: opacity 380ms var(--ease-out);
+}
+
+/* Reflet lumineux au survol */
+.VisualCard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 25%,
+    rgba(255, 255, 255, 0.16) 50%,
+    transparent 75%
+  );
+  transform: translateX(-130%);
+  transition: transform 850ms var(--ease-out);
+  pointer-events: none;
+}
+
+.VisualCard:hover {
+  transform: translateY(-9px) scale(1.012);
+  border-color: var(--accent-soft);
+  box-shadow: 0 28px 60px rgba(8, 10, 22, 0.55), 0 0 0 2px var(--accent-glow);
+}
+
+.VisualCard:hover .VisualCard__bg {
+  transform: scale(1.1) rotate(-0.6deg);
+  filter: brightness(1.08) saturate(1.15);
+}
+
+.VisualCard:hover::after {
+  transform: translateX(130%);
+}
+
+.VisualCard__content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  width: 100%;
+}
+
+.VisualCard__content h2,
+.VisualCard__content h3 {
+  margin: 0;
+  color: #ffffff;
+}
+
+.VisualCard__content h3 {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+}
+
+.VisualCard__content p {
+  margin: 0;
+  color: rgba(244, 242, 250, 0.85);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.VisualCard__tag {
+  display: inline-flex;
+  padding: 0.28rem 0.75rem;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.VisualCard--pro .VisualCard__tag {
+  background: rgba(95, 211, 161, 0.2);
+  border-color: rgba(95, 211, 161, 0.45);
+  color: #b7f5d8;
+}
+
+.VisualCard__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.VisualCard__pills li {
+  padding: 0.22rem 0.65rem;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.76rem;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.VisualCard__cta {
+  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.6rem 1.15rem;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-sm);
+  transition: transform var(--duration-base) var(--ease-out), gap var(--duration-base) var(--ease-out);
+}
+
+.VisualCard:hover .VisualCard__cta {
+  gap: 14px;
+  transform: translateX(4px);
+}
+
+/* Grille Bento des 5 services passagers */
+.service-cards-grid {
+  margin-top: var(--space-6);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+.VisualCard--wide {
+  grid-column: span 2;
+}
+
+/* ---------- 3. EN-TÊTES & STRUCTURES DES PORTAILS CLOISONNÉS ---------- */
+.portal-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.brand-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.portal-pill {
+  padding: 0.24rem 0.68rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: all var(--duration-fast);
+}
+.portal-pill:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.portal-pill--pro {
+  border-color: rgba(95, 211, 161, 0.45);
+  color: var(--success);
+}
+
+.user-pill {
+  padding: 0.35rem 0.85rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.security-chip {
+  padding: 0.32rem 0.75rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.security-chip--e2ee {
+  border-color: rgba(95, 211, 161, 0.5);
+  color: var(--success);
+}
+
+/* ---------- 4. BANNIÈRES DE SERVICES, FILTRES PAYS, KPI & SUIVI LIVE ---------- */
+.service-hero {
+  padding-block: var(--space-8) var(--space-7);
+}
+.service-hero__inner {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+}
+
+.tracking-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  width: min(100%, 760px);
+}
+.tracking-search .input {
+  flex: 1 1 260px;
+}
+
+.country-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  width: 100%;
+  justify-content: space-between;
+}
+.country-select {
+  max-width: 350px;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: var(--space-4);
+}
+.kpi-card {
+  display: grid;
+  gap: 4px;
+  padding: var(--space-5);
+}
+.kpi-card--accent {
+  border-color: var(--accent);
+  box-shadow: 0 12px 32px var(--accent-glow);
+}
+.kpi-card__value {
+  font-size: clamp(1.45rem, 2vw + 0.8rem, 2.05rem);
+  color: var(--accent-soft);
+}
+
+.incident-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 13%, var(--surface));
+}
+.incident-banner__icon {
+  font-size: 1.9rem;
+}
+
+.map-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: var(--space-3);
+}
+
+.timeline-list {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.timeline-item {
+  padding-inline-start: var(--space-4);
+  border-inline-start: 3px solid var(--accent);
+  display: grid;
+  gap: 4px;
+}
+.timeline-item__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-sm);
+}
+
+.selectable-card {
+  text-align: start;
+  cursor: pointer;
+}
+.selectable-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.checkbox-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+/* ---------- 5. MARCHÉ ACHAT DE BUS ---------- */
+.bus-market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: var(--space-5);
+}
+.bus-sale-card {
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 210px 1fr;
+  transition: transform var(--duration-base) var(--ease-out), box-shadow var(--duration-base);
+}
+.bus-sale-card:hover {
+  transform: translateY(-7px);
+  box-shadow: 0 22px 44px var(--accent-glow);
+  border-color: var(--accent);
+}
+.bus-sale-card__media {
+  position: relative;
+  overflow: hidden;
+}
+.bus-sale-card__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 600ms var(--ease-out);
+}
+.bus-sale-card:hover .bus-sale-card__media img {
+  transform: scale(1.08);
+}
+.bus-sale-card__badge {
+  position: absolute;
+  top: 12px;
+  inset-inline-end: 12px;
+  padding: 0.25rem 0.7rem;
+  border-radius: var(--radius-pill);
+  background: rgba(18, 20, 30, 0.82);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+.bus-sale-card__body {
+  padding: var(--space-5);
+  display: grid;
+  gap: var(--space-3);
+  align-content: space-between;
+}
+.bus-sale-card__body h3 {
+  margin: 0;
+}
+.bus-sale-card__footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- 6. FENÊTRES MODALES, CODE PIN 5 CHIFFRES & ID AGENCE ---------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgba(10, 12, 20, 0.72);
+  backdrop-filter: blur(8px);
+}
+.modal-panel {
+  width: min(100%, 540px);
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
+}
+.modal-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.pin-input {
+  text-align: center;
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: 0.55em;
+  padding-block: 0.85rem;
+}
+
+.agency-id-box {
+  display: grid;
+  gap: 6px;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+}
+.agency-id-box__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.agency-id-box__code {
+  font-size: 1.85rem;
+  color: var(--accent-soft);
+  letter-spacing: 0.08em;
+}
+
+/* ---------- 7. ESPACE DE TRAVAIL AGENCE ---------- */
+.workspace-banner {
+  display: grid;
+  gap: var(--space-4);
+}
+.workspace-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.page-embedded {
+  display: grid;
+  gap: var(--space-5);
+}
+
+/* ---------- 8. MESSAGERIE E2EE FAÇON WHATSAPP / INSTAGRAM DIRECT ---------- */
+.chat-shell {
+  --chat-bg: linear-gradient(145deg, #1e2030 0%, #27233a 100%);
+  --chat-mine: #7c56b8;
+  --chat-mine-text: #ffffff;
+  --chat-peer: rgba(255, 255, 255, 0.09);
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  min-height: 620px;
+  max-height: 76vh;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+/* 6 Thèmes de groupe commutables en direct */
+.chat-theme--aurora {
+  --chat-bg: radial-gradient(circle at 80% 20%, rgba(140, 107, 184, 0.25), transparent 55%),
+    linear-gradient(160deg, #1b1d2b 0%, #262038 100%);
+  --chat-mine: linear-gradient(135deg, #8c6bb8, #69499c);
+}
+.chat-theme--whatsapp {
+  --chat-bg: radial-gradient(circle at 15% 85%, rgba(31, 168, 85, 0.18), transparent 55%),
+    linear-gradient(160deg, #0d1f17 0%, #142920 100%);
+  --chat-mine: linear-gradient(135deg, #1fa855, #14803f);
+}
+.chat-theme--instagram {
+  --chat-bg: radial-gradient(circle at 85% 15%, rgba(214, 41, 118, 0.24), transparent 55%),
+    linear-gradient(160deg, #1a1429 0%, #2b1630 100%);
+  --chat-mine: linear-gradient(135deg, #f56040, #d62976 55%, #962fbf);
+}
+.chat-theme--ocean {
+  --chat-bg: radial-gradient(circle at 20% 20%, rgba(37, 99, 235, 0.25), transparent 55%),
+    linear-gradient(160deg, #0f1b2e 0%, #162944 100%);
+  --chat-mine: linear-gradient(135deg, #2563eb, #0ea5e9);
+}
+.chat-theme--savane {
+  --chat-bg: radial-gradient(circle at 80% 80%, rgba(217, 119, 6, 0.22), transparent 55%),
+    linear-gradient(160deg, #241b12 0%, #2f2215 100%);
+  --chat-mine: linear-gradient(135deg, #d97706, #b45309);
+}
+.chat-theme--minimal {
+  --chat-bg: linear-gradient(180deg, #191b24 0%, #20232e 100%);
+  --chat-mine: linear-gradient(135deg, #475569, #334155);
+}
+
+.chat-sidebar {
+  border-inline-end: 1px solid var(--border);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--bg-elevated);
+}
+.chat-sidebar__head {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.chat-sidebar__list {
+  overflow-y: auto;
+  padding: var(--space-2);
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+.chat-room-btn {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+.chat-room-btn:hover {
+  background: var(--surface-hover);
+}
+.chat-room-btn.is-active {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+.chat-room-btn__avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--text-sm);
+}
+.chat-room-btn__meta {
+  min-width: 0;
+}
+.chat-room-btn__meta strong {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-unread {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--success);
+  color: #0d1f17;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.chat-main {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto auto;
+  background: var(--chat-bg);
+  color: #f3f2f8;
+  min-height: 0;
+}
+.chat-header {
+  padding: 12px 18px;
+  background: rgba(14, 16, 26, 0.58);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.chat-encryption-banner {
+  margin: 8px 16px 0;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(240, 197, 107, 0.12);
+  border: 1px solid rgba(240, 197, 107, 0.28);
+  color: #f7deb0;
+  font-size: 0.76rem;
+  text-align: center;
+}
+.chat-stream {
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.chat-system-pill {
+  justify-self: center;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.75rem;
+}
+.chat-bubble-row {
+  display: flex;
+  justify-content: flex-start;
+}
+.chat-bubble-row.is-mine {
+  justify-content: flex-end;
+}
+.chat-bubble {
+  max-width: min(76%, 520px);
+  padding: 10px 14px;
+  border-radius: 18px 18px 18px 4px;
+  background: var(--chat-peer);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+.chat-bubble--mine {
+  background: var(--chat-mine);
+  color: var(--chat-mine-text);
+  border-radius: 18px 18px 4px 18px;
+  border-color: transparent;
+}
+.chat-bubble__author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-size: 0.76rem;
+  color: #dcd6f7;
+}
+.chat-role-tag {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.15);
+  font-size: 0.68rem;
+}
+.chat-bubble__text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.94rem;
+  line-height: 1.45;
+}
+.chat-bubble__meta {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 0.68rem;
+  opacity: 0.78;
+}
+.chat-quick-bar {
+  padding: 6px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chat-composer {
+  padding: 12px 16px;
+  background: rgba(14, 16, 26, 0.65);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  gap: 10px;
+}
+.chat-theme-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  inset-inline-end: 0;
+  z-index: 30;
+  padding: 8px;
+  min-width: 210px;
+  display: grid;
+  gap: 4px;
+}
+.chat-theme-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: start;
+}
+.chat-theme-item:hover,
+.chat-theme-item.is-active {
+  background: var(--surface-hover);
+}
+.chat-theme-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 960px) {
+  .gateway__cards,
+  .service-cards-grid,
+  .chat-shell {
+    grid-template-columns: 1fr;
+  }
+  .VisualCard--wide {
+    grid-column: span 1;
+  }
+  .chat-shell {
+    max-height: none;
+  }
+  .chat-sidebar {
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--border);
+    max-height: 210px;
+  }
+}
+

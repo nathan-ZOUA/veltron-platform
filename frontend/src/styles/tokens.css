@@ -1,0 +1,126 @@
+/* ==========================================================================
+   TOKENS – tout le design se règle ici (couleurs, polices, espacements).
+   Pour changer l'identité visuelle de VELTRON, modifie seulement ce fichier.
+   ========================================================================== */
+
+:root {
+  /* ----- Polices (modifiables) ----- */
+  --font-display: "Plus Jakarta Sans", "DM Sans", system-ui, sans-serif; /* titres */
+  --font-body: "DM Sans", system-ui, sans-serif;                          /* texte */
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;                 /* chiffres, horaires */
+
+  /* ----- Échelle typographique fluide ----- */
+  --text-xs: 0.8rem;
+  --text-sm: 0.92rem;
+  --text-base: 1.05rem;
+  --text-lg: 1.25rem;
+  --text-xl: clamp(1.5rem, 2.2vw + 1rem, 2.2rem);
+  --text-2xl: clamp(2rem, 3.6vw + 1rem, 3.4rem);
+  --text-hero: clamp(2.6rem, 6vw + 0.5rem, 5.6rem);
+
+  /* ----- Espacements ----- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 5rem;
+  --space-9: 8rem;
+
+  /* ----- Formes ----- */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+
+  /* ----- Mise en page ----- */
+  --container: 1180px;
+  --header-height: 72px;
+
+  /* ----- Mouvement ----- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 160ms;
+  --duration-base: 320ms;
+  --duration-slow: 700ms;
+
+  /* ----- Photos d'arrière-plan (fichiers dans /public/images) -----
+     Si le fichier est absent, le dégradé de secours prend le relais. */
+  --photo-hero: url("/images/hero.jpg");
+  --photo-rental: url("/images/rental.jpg");
+  --photo-login: url("/images/login.jpg");
+  --photo-partner: url("/images/partner-bus.jpg"); /* le beau bus du portail agence */
+  --photo-agency: url("/images/agency.jpg");
+
+  /* ----- Couleurs de statut (indépendantes du thème) ----- */
+  --success: #5fd3a1;
+  --warning: #f0c56b;
+  --danger: #f08a8a;
+  --info: #7fb4f0;
+}
+
+/* ==========================================================================
+   THÈME SOMBRE (par défaut) – inspiré de la capture : ardoise + lavande
+   ========================================================================== */
+:root,
+[data-theme="dark"] {
+  --bg: #242632;
+  --bg-elevated: #2a2c3a;
+  --surface: #2c2e3b;
+  --surface-hover: #323544;
+  --border: #3b3e50;
+  --border-strong: #52566b;
+
+  --text: #f2f0f7;
+  --text-muted: #a9a8b8;
+  --text-faint: #7d7c90;
+
+  --accent: #8c6bb8;          /* boutons */
+  --accent-hover: #9b7bc8;
+  --accent-contrast: #ffffff; /* texte sur bouton */
+  --accent-soft: #cdb6ea;     /* titres colorés, liens */
+  --accent-glow: rgba(140, 107, 184, 0.35);
+
+  --photo-overlay: linear-gradient(
+    180deg,
+    rgba(36, 38, 50, 0.55) 0%,
+    rgba(36, 38, 50, 0.82) 70%,
+    #242632 100%
+  );
+  --shadow-card: 0 18px 40px rgba(8, 9, 16, 0.35);
+  --header-bg: rgba(36, 38, 50, 0.72);
+  color-scheme: dark;
+}
+
+/* ==========================================================================
+   THÈME CLAIR
+   ========================================================================== */
+[data-theme="light"] {
+  --bg: #f6f4fa;
+  --bg-elevated: #efecf6;
+  --surface: #ffffff;
+  --surface-hover: #f1eef8;
+  --border: #e3deee;
+  --border-strong: #c9c1dc;
+
+  --text: #1e1f2b;
+  --text-muted: #636178;
+  --text-faint: #8b89a0;
+
+  --accent: #7a56a8;
+  --accent-hover: #6a4797;
+  --accent-contrast: #ffffff;
+  --accent-soft: #5e3d8c;
+  --accent-glow: rgba(122, 86, 168, 0.25);
+
+  --photo-overlay: linear-gradient(
+    180deg,
+    rgba(246, 244, 250, 0.6) 0%,
+    rgba(246, 244, 250, 0.88) 70%,
+    #f6f4fa 100%
+  );
+  --shadow-card: 0 18px 40px rgba(60, 40, 100, 0.12);
+  --header-bg: rgba(246, 244, 250, 0.78);
+  color-scheme: light;
+}

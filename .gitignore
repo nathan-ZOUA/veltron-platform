@@ -1,0 +1,19 @@
+# Dependencies & builds
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+
+# Environment secrets (keep .env.example versioned)
+.env
+.env.local
+backend/.env
+frontend/.env
+!backend/.env.example
+!frontend/.env.example
+
+# Runtime logs & local caches
+*.log
+backend/storage/*.log
+.DS_Store
+Thumbs.db

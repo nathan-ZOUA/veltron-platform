@@ -1,0 +1,201 @@
+/* ==========================================================================
+   PAGE D'ACCUEIL
+   ========================================================================== */
+
+/* ---------- Héros ---------- */
+.hero {
+  min-height: calc(100vh - var(--header-height));
+  display: flex;
+  align-items: center;
+  padding-block: var(--space-8);
+}
+
+.hero__content {
+  display: grid;
+  gap: var(--space-5);
+  justify-items: start;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+/* Mini-trajet animé */
+.ticker {
+  width: min(100%, 520px);
+  padding: var(--space-4) var(--space-5);
+  display: grid;
+  gap: var(--space-3);
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+}
+
+.ticker__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.ticker__head .badge {
+  margin-inline-start: auto;
+}
+
+.ticker__route {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.ticker__track {
+  position: relative;
+  flex: 1;
+  height: 16px;
+}
+
+.ticker__line {
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  border-top: 2px dashed var(--border-strong);
+}
+
+.ticker__bus {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  margin-inline-start: -8px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 6px var(--accent-glow);
+}
+
+/* ---------- Titres de section ---------- */
+.section-title {
+  max-width: 20ch;
+}
+
+.section-note {
+  margin-top: var(--space-4);
+  max-width: 60ch;
+}
+
+.section--tinted {
+  background: var(--bg-elevated);
+  border-block: 1px solid var(--border);
+}
+
+/* ---------- Fonctionnalités ---------- */
+.features-grid {
+  margin-top: var(--space-7);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-5);
+}
+
+.feature {
+  height: 100%;
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+}
+
+.feature__icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--accent-soft);
+}
+
+/* ---------- Étapes ---------- */
+.steps {
+  margin: var(--space-7) 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-5);
+  max-width: 720px;
+}
+
+.step {
+  display: flex;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
+.step__number {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  color: var(--accent-soft);
+  font-weight: 500;
+  font-size: var(--text-lg);
+}
+
+/* ---------- Location (bandeau photo) ---------- */
+.rental {
+  padding-block: var(--space-9);
+}
+
+.rental__content {
+  display: grid;
+  justify-items: start;
+}
+
+.rental__text {
+  margin-block: var(--space-4) var(--space-5);
+}
+
+/* ---------- Contact (comme la capture de référence) ---------- */
+.contact {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: var(--space-8);
+  align-items: start;
+}
+
+.contact__text {
+  margin-block: var(--space-5) var(--space-6);
+}
+
+.contact__links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contact__links a {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: var(--space-4);
+  align-items: center;
+  padding-block: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  transition: color var(--duration-fast), padding var(--duration-base) var(--ease-out);
+}
+
+.contact__links a:hover {
+  color: var(--accent-soft);
+  padding-inline-start: var(--space-3);
+}
+
+.contact__arrow {
+  font-size: var(--text-lg);
+}
+
+.contact__notice {
+  font-size: var(--text-sm);
+}

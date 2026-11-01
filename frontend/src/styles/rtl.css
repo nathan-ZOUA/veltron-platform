@@ -1,0 +1,14 @@
+/* ==========================================================================
+   RTL – ajustements pour l'arabe (dir="rtl" posé automatiquement sur <html>)
+   La plupart des marges utilisent déjà des propriétés logiques
+   (margin-inline, padding-inline, inset-inline…), donc peu de règles ici.
+   ========================================================================== */
+
+[dir="rtl"] .flip-rtl {
+  transform: scaleX(-1); /* retourne les flèches et icônes directionnelles */
+}
+
+[dir="rtl"] .mono {
+  direction: ltr;        /* heures, montants et plaques restent lisibles */
+  unicode-bidi: embed;
+}
