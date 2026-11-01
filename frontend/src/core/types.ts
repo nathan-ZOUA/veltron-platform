@@ -36,7 +36,17 @@ export interface AgencyInfo {
 }
 
 export interface AgencySession {
-  user: { id: number; email: string; first_name: string; last_name: string; phone: string | null };
+  user: {
+    id: number;
+    email: string;
+    first_name: string;
+    last_name: string;
+    phone: string | null;
+    matricule?: string | null;
+    custom_role?: string | null;
+    job_title?: string | null;
+    avatar_url?: string | null;
+  };
   role: AgencyRole;
   agency: AgencyInfo;
 }
@@ -297,6 +307,13 @@ export interface DeskTrip {
   booked: number;
   boarded: number;
   no_shows: number;
+  current_lat?: number | null;
+  current_lng?: number | null;
+  current_speed_kmh?: number | null;
+  current_progress_pct?: number | null;
+  last_gps_at?: string | null;
+  driver_name?: string | null;
+  driver_phone?: string | null;
 }
 
 export interface ManifestTicket {

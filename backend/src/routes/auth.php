@@ -104,7 +104,8 @@ route('GET', '/api/me', fn() => json_out(passenger_payload(require_passenger()))
 // ---------- 2. ESPACE AGENCE (ID auto + Nom + E-mail + Mot de passe + Code PIN 5 chiffres, délai 50s) ----------
 function agency_session_payload(int $userId, int $agencyId, string $role): array
 {
-    $u = one('SELECT id, email, first_name, last_name, phone, locale FROM users WHERE id = ?', [$userId]);
+    $u = one('SELECT id, email, first_name, last_name, phone, locale, avatar_url FROM users WHERE id = ?', [$userId]);
+    $st = one('SELECT matricule, custom_role, avatar_url, job_title FROM agency_staff WHERE agency_id = ? AND user_id = ?', [$agencyId, $userId]);
     $a = one('SELECT id, public_code, slug, name, primary_color, currency_code, status, verification_status,
                      verification_score, fill_window_minutes, refund_cutoff_minutes, free_baggage_kg,
                      baggage_fee_per_kg, transfer_fee, points_per_trip, email, phone, address
@@ -117,6 +118,10 @@ function agency_session_payload(int $userId, int $agencyId, string $role): array
             'first_name' => $u['first_name'],
             'last_name' => $u['last_name'],
             'phone' => $u['phone'],
+            'matricule' => $st['matricule'] ?? null,
+            'custom_role' => $st['custom_role'] ?? null,
+            'job_title' => $st['job_title'] ?? null,
+            'avatar_url' => $st['avatar_url'] ?: ($u['avatar_url'] ?? null),
         ],
         'role' => $role,
         'agency' => [
@@ -156,11 +161,11 @@ route('POST', '/api/agency/auth/initiate', function () {
     $in = input();
     $publicCode = strtoupper(trim((string) ($in['public_code'] ?? '')));
     $agencyName = trim((string) ($in['agency_name'] ?? ''));
-    $email = strtolower(trim((string) ($in['email'] ?? '')));
+    $loginId = trim((string) ($in['email_or_matricule'] ?? $in['email'] ?? $in['matricule'] ?? ''));
     $password = (string) ($in['password'] ?? '');
 
-    if ($publicCode === '' || $agencyName === '' || $email === '' || $password === '') {
-        fail(422, 'missing_fields', 'Renseignez l\'ID de l\'agence, son nom, l\'adresse e-mail et le mot de passe.');
+    if ($publicCode === '' || $agencyName === '' || $loginId === '' || $password === '') {
+        fail(422, 'missing_fields', 'Renseignez l\'ID de l\'agence, son nom, votre E-mail ou Matricule, et le mot de passe.');
     }
 
     $agency = one('SELECT * FROM agencies WHERE public_code = ?', [$publicCode]);
@@ -171,24 +176,35 @@ route('POST', '/api/agency/auth/initiate', function () {
         fail(403, 'agency_suspended', 'Cette agence est actuellement suspendue par la sécurité VELTRON.');
     }
 
-    // L'utilisateur peut saisir son e-mail personnel (employé/admin) OU l'e-mail général de l'agence (dirigé vers le propriétaire owner)
-    $staffRow = one("SELECT st.role, st.status, u.email AS user_email, u.id AS user_id
-                     FROM agency_staff st JOIN users u ON u.id = st.user_id
-                     WHERE st.agency_id = ? AND u.email = ?", [$agency['id'], $email]);
-    if (!$staffRow && strtolower($agency['email']) === $email) {
-        $staffRow = one("SELECT st.role, st.status, u.email AS user_email, u.id AS user_id
+    // Connexion par E-mail personnel OU par Matricule unique au sein de l'agence
+    $isEmail = str_contains($loginId, '@');
+    if ($isEmail) {
+        $email = strtolower($loginId);
+        $staffRow = one("SELECT st.role, st.status, st.matricule, st.custom_role, st.avatar_url, u.email AS user_email, u.id AS user_id
                          FROM agency_staff st JOIN users u ON u.id = st.user_id
-                         WHERE st.agency_id = ? AND st.role = 'owner' ORDER BY st.id LIMIT 1", [$agency['id']]);
+                         WHERE st.agency_id = ? AND LOWER(u.email) = ?", [$agency['id'], $email]);
+        if (!$staffRow && strtolower($agency['email']) === $email) {
+            $staffRow = one("SELECT st.role, st.status, st.matricule, st.custom_role, st.avatar_url, u.email AS user_email, u.id AS user_id
+                             FROM agency_staff st JOIN users u ON u.id = st.user_id
+                             WHERE st.agency_id = ? AND st.role = 'owner' ORDER BY st.id LIMIT 1", [$agency['id']]);
+        }
+    } else {
+        // Recherche par Matricule (insensible à la casse, ex. AG1-SEC-02 ou SEC-01)
+        $matricule = strtoupper($loginId);
+        $staffRow = one("SELECT st.role, st.status, st.matricule, st.custom_role, st.avatar_url, u.email AS user_email, u.id AS user_id
+                         FROM agency_staff st JOIN users u ON u.id = st.user_id
+                         WHERE st.agency_id = ? AND UPPER(st.matricule) = ?", [$agency['id'], $matricule]);
     }
+
     if (!$staffRow || $staffRow['status'] !== 'active') {
-        fail(401, 'bad_agency_credentials', 'Aucun compte actif ne correspond à cette adresse dans cette agence.');
+        fail(401, 'bad_agency_credentials', 'Aucun compte actif ne correspond à cet E-mail ou Matricule dans cette agence.');
     }
 
     // Vérification du mot de passe personnel du compte (isolation stricte entre les 6 comptes)
     check_user_credentials((string) $staffRow['user_email'], $password);
 
     // Envoi du code de validation à 5 chiffres (avec délai de réinitialisation de 50 secondes)
-    $otpTargetEmail = (strtolower($agency['email']) === $email) ? $agency['email'] : (string) $staffRow['user_email'];
+    $otpTargetEmail = (string) $staffRow['user_email'];
     otp_cooldown('agency_login', $otpTargetEmail);
     [$challenge, $code] = otp_issue('agency_login', $otpTargetEmail, (int) $agency['id'], (int) $staffRow['user_id']);
 

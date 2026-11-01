@@ -73,7 +73,8 @@ export default function AgencyLogin() {
         body: {
           public_code: form.public_code.trim().toUpperCase(),
           agency_name: form.agency_name.trim(),
-          email: form.email.trim().toLowerCase(),
+          email_or_matricule: form.email.trim(),
+          email: form.email.trim(),
           password: form.password,
         },
         realm: null,
@@ -191,12 +192,11 @@ export default function AgencyLogin() {
             </div>
 
             <label className="field">
-              <span className="field__label">Adresse e-mail (agence ou compte personnel employé)</span>
+              <span className="field__label">E-mail ou Matricule personnel (ex. AG1-SEC-02)</span>
               <input
                 className="input"
-                type="email"
                 required
-                placeholder="prenom.nom@mon-agence.com"
+                placeholder="prenom.nom@mon-agence.com ou Matricule (ex. AG1-SEC-02)"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />

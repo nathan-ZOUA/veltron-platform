@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../core/api";
@@ -7,12 +7,17 @@ import { formatDay, formatMoney, formatTime } from "../core/format";
 import type { AgencyRole } from "../core/types";
 import Desk from "./Desk";
 import AgencyChat from "./AgencyChat";
+import Avatar from "../components/Avatar";
+import SalesAnalyticsChart from "../components/SalesAnalyticsChart";
+import FleetLiveOverview from "../components/FleetLiveOverview";
 
 type TabId =
   | "overview"
   | "desk"
+  | "fleet_live"
   | "trips"
   | "driver"
+  | "analytics"
   | "fleet"
   | "commercial"
   | "staff"
@@ -29,11 +34,13 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: "overview", label: "📊 Vue d’ensemble", roles: ["owner", "manager"] },
   { id: "desk", label: "🎫 Guichet & Embarquement", roles: ["owner", "manager", "secretary", "staff"] },
+  { id: "fleet_live", label: "🗺️ Flotte & GPS en Direct", roles: ["owner", "manager", "secretary", "accountant", "staff"] },
   { id: "trips", label: "🗓️ Voyages & Reports", roles: ["owner", "manager", "secretary"] },
   { id: "driver", label: "🚌 Espace Chauffeur", roles: ["driver", "owner", "manager"] },
+  { id: "analytics", label: "📈 Diagramme des Ventes", roles: ["owner", "manager", "secretary", "accountant"] },
   { id: "fleet", label: "⚙️ Flotte & Lignes", roles: ["owner", "manager"] },
   { id: "commercial", label: "🤝 Location & Vente Bus", roles: ["owner", "manager", "secretary", "accountant"] },
-  { id: "staff", label: "👥 Comptes Équipe (6 rôles)", roles: ["owner", "manager"] },
+  { id: "staff", label: "👥 Comptes & Postes Équipe", roles: ["owner", "manager"] },
   { id: "finance", label: "💳 Comptabilité", roles: ["owner", "accountant"] },
   { id: "chat", label: "💬 Discussion d’Équipe", roles: ["owner", "manager", "secretary", "driver", "staff", "accountant"] },
   { id: "settings", label: "🛡️ Sécurité, Règles & Audit", roles: ["owner"] },
@@ -206,12 +213,15 @@ export default function AgencyWorkspace() {
   });
   const [gpsStatus, setGpsStatus] = useState<string>("");
 
-  // Équipe (6 rôles isolés)
+  // Équipe (Postes illimités, Matricules uniques & Avatars)
   const [staffRows, setStaffRows] = useState<
     {
       user_id: number;
       role: AgencyRole;
       job_title: string | null;
+      custom_role?: string | null;
+      matricule?: string | null;
+      avatar_url?: string | null;
       status: string;
       last_login_at: string | null;
       email: string;
@@ -230,8 +240,51 @@ export default function AgencyWorkspace() {
     email: "",
     phone: "",
     job_title: "",
+    custom_role: "",
+    matricule: "",
     password: "",
   });
+  const [avatarModalOpen, setAvatarModalOpen] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState("");
+
+  // Analytics des ventes
+  const [salesPeriod, setSalesPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("weekly");
+  const [salesAnalytics, setSalesAnalytics] = useState<{
+    period: string;
+    currency_code: string;
+    data: { label: string; date?: string; gross: number; net: number; commission: number; tickets: number }[];
+    summary: { total_gross: number; total_net: number; total_commission: number; total_tickets: number };
+  } | null>(null);
+
+  // Flotte temps réel GPS
+  const [fleetLive, setFleetLive] = useState<{
+    id: number;
+    status: string;
+    departs_at: string;
+    arrives_at: string | null;
+    delay_minutes: number;
+    current_lat: number | null;
+    current_lng: number | null;
+    current_speed_kmh: number | null;
+    current_progress_pct: number | null;
+    last_gps_at: string | null;
+    origin: string;
+    destination: string;
+    distance_km: number;
+    bus_label: string;
+    plate: string;
+    seat_count: number;
+    booked_seats: number;
+    boarded_seats: number;
+    is_full: boolean;
+    driver_name: string | null;
+    driver_phone: string | null;
+  }[]>([]);
+
+  // Suivi GPS chauffeur continu
+  const [isGpsWatching, setIsGpsWatching] = useState(false);
+  const [gpsWatchStatus, setGpsWatchStatus] = useState("");
+  const gpsWatchIdRef = useRef<number | null>(null);
 
   // Commercial (Location & Vente Bus)
   const [rentals, setRentals] = useState<
@@ -371,6 +424,12 @@ export default function AgencyWorkspace() {
         if (d.trips[0]) {
           setReportForm((f) => ({ ...f, trip_id: f.trip_id || d.trips[0].id }));
         }
+      } else if (tab === "fleet_live") {
+        const fl = await api<typeof fleetLive>("/agency/fleet-live", { realm: "agency" });
+        setFleetLive(fl);
+      } else if (tab === "analytics") {
+        const an = await api<NonNullable<typeof salesAnalytics>>(`/agency/sales-analytics?period=${salesPeriod}`, { realm: "agency" });
+        setSalesAnalytics(an);
       } else if (tab === "staff") {
         const s = await api<typeof staffRows>("/agency/staff", { realm: "agency" });
         setStaffRows(s);
@@ -550,7 +609,7 @@ export default function AgencyWorkspace() {
       setNotice(
         `✓ Compte isolé (${ROLE_LABELS[newStaff.role]}) créé ! Cet employé peut désormais se connecter sur « J’ai une agence » avec l’ID ${agencySession!.agency.public_code}.`,
       );
-      setNewStaff({ role: "secretary", first_name: "", last_name: "", email: "", phone: "", job_title: "", password: "" });
+      setNewStaff({ role: "secretary", first_name: "", last_name: "", email: "", phone: "", job_title: "", custom_role: "", matricule: "", password: "" });
       loadTabContent();
     } catch (err) {
       handleErr(err);
@@ -625,25 +684,127 @@ export default function AgencyWorkspace() {
     }
   }
 
+  async function loadSalesAnalytics(period: "daily" | "weekly" | "monthly" | "yearly") {
+    try {
+      const an = await api<NonNullable<typeof salesAnalytics>>(`/agency/sales-analytics?period=${period}`, { realm: "agency" });
+      setSalesAnalytics(an);
+    } catch (e) {
+      handleErr(e);
+    }
+  }
+
+  function startLiveGpsTracking(tripId: number) {
+    if (!("geolocation" in navigator)) {
+      setGpsWatchStatus("❌ Géolocalisation non supportée par votre appareil.");
+      return;
+    }
+    if (gpsWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+    }
+    setIsGpsWatching(true);
+    setGpsWatchStatus("🛰️ Recherche du signal satellite GPS en cours…");
+
+    gpsWatchIdRef.current = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        const spd = pos.coords.speed && pos.coords.speed > 0 ? Math.round(pos.coords.speed * 3.6) : null;
+        setGpsWatchStatus(`🟢 GPS Smartphone Actif : ${lat}, ${lng} ${spd !== null ? `· ${spd} km/h` : ""}`);
+
+        try {
+          await api(`/agency/driver/trips/${tripId}/live-ping`, {
+            body: { lat, lng, speed_kmh: spd },
+            realm: "agency",
+          });
+        } catch {
+          // ignore transient ping failure
+        }
+      },
+      (err) => {
+        setGpsWatchStatus(`⚠️ Signal GPS perdu : ${err.message}`);
+      },
+      { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 },
+    );
+  }
+
+  function stopLiveGpsTracking() {
+    if (gpsWatchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      gpsWatchIdRef.current = null;
+    }
+    setIsGpsWatching(false);
+    setGpsWatchStatus("⏸️ Suivi GPS en direct arrêté.");
+  }
+
+  function openGoogleMapsNavigation(origin: string, destination: string) {
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+    window.open(url, "_blank");
+  }
+
+  async function updateAvatar(url: string) {
+    setNotice("");
+    setError("");
+    try {
+      await api("/agency/me/avatar", { body: { avatar_url: url }, realm: "agency" });
+      setNotice("✓ Photo de profil mise à jour !");
+      setAvatarModalOpen(false);
+      await refreshAgency();
+      loadTabContent();
+    } catch (e) {
+      handleErr(e);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (gpsWatchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      }
+    };
+  }, []);
+
   return (
     <div className="container page">
       {/* En-tête de session isolée */}
       <div className="workspace-banner card">
-        <div>
-          <div className="chips" style={{ marginBottom: 6 }}>
-            <span className="badge mono">ID : {agencySession.agency.public_code}</span>
-            <span className="badge">{ROLE_LABELS[role]}</span>
-            <span className="badge">
-              {agencySession.agency.status === "active" ? "🟢 Agence active" : "🟠 En revue de vérification"}
-            </span>
+        <div style={{ display: "flex", gap: "var(--space-4)", alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ position: "relative" }}>
+            <Avatar name={`${agencySession.user.first_name} ${agencySession.user.last_name}`} photo={agencySession.user.avatar_url} size={64} />
+            <button
+              type="button"
+              className="chip"
+              style={{ position: "absolute", bottom: -6, right: -6, padding: "2px 6px", fontSize: "0.7rem", cursor: "pointer" }}
+              title="Modifier ma photo de profil"
+              onClick={() => {
+                setAvatarPreview(agencySession.user.avatar_url || "");
+                setAvatarModalOpen(true);
+              }}
+            >
+              📷
+            </button>
           </div>
-          <h1 className="display display-xl" style={{ margin: 0 }}>
-            {agencySession.agency.name}
-          </h1>
-          <p className="muted" style={{ margin: "4px 0 0", fontSize: "var(--text-sm)" }}>
-            Session personnelle cloisonnée de <strong>{agencySession.user.first_name} {agencySession.user.last_name}</strong> ({agencySession.user.email}) ·{" "}
-            📍 {agencySession.agency.address}
-          </p>
+
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <div className="chips" style={{ marginBottom: 6 }}>
+              <span className="badge mono">ID : {agencySession.agency.public_code}</span>
+              {agencySession.user.matricule && (
+                <span className="badge mono" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10b981", borderColor: "#10b981" }}>
+                  Matricule : {agencySession.user.matricule}
+                </span>
+              )}
+              <span className="badge">{agencySession.user.custom_role || ROLE_LABELS[role]}</span>
+              <span className="badge">
+                {agencySession.agency.status === "active" ? "🟢 Agence active" : "🟠 En revue de vérification"}
+              </span>
+            </div>
+            <h1 className="display display-xl" style={{ margin: 0 }}>
+              {agencySession.agency.name}
+            </h1>
+            <p className="muted" style={{ margin: "4px 0 0", fontSize: "var(--text-sm)" }}>
+              Session personnelle de <strong>{agencySession.user.first_name} {agencySession.user.last_name}</strong> ({agencySession.user.email}) ·{" "}
+              📍 {agencySession.agency.address}
+            </p>
+          </div>
         </div>
 
         <div className="workspace-tabs" role="tablist">
@@ -750,6 +911,16 @@ export default function AgencyWorkspace() {
 
       {/* ==================== 2. GUICHET & SECRÉTARIAT ==================== */}
       {tab === "desk" && <Desk embedded />}
+
+      {/* ==================== 2b. FLOTTE & GPS EN DIRECT ==================== */}
+      {tab === "fleet_live" && (
+        <FleetLiveOverview
+          fleet={fleetLive}
+          onRefresh={loadTabContent}
+          timezone={Intl.DateTimeFormat().resolvedOptions().timeZone || "Africa/Douala"}
+          language={i18n.language}
+        />
+      )}
 
       {/* ==================== 3. PROGRAMMATION DES VOYAGES & REPORTS ==================== */}
       {tab === "trips" && (
@@ -981,18 +1152,61 @@ export default function AgencyWorkspace() {
                           {tr.passengers_count}/{tr.seat_count}
                         </strong>
                       </div>
-                      <div>
+                      <div className="chips" style={{ marginTop: 8 }}>
                         <button
                           type="button"
                           className={reportForm.trip_id === tr.id ? "chip is-active" : "chip"}
                           onClick={() => setReportForm({ ...reportForm, trip_id: tr.id })}
                         >
-                          Sélectionner pour signaler mon évolution
+                          {reportForm.trip_id === tr.id ? "✓ Voyage sélectionné" : "Sélectionner ce voyage"}
                         </button>
+                        <button
+                          type="button"
+                          className="btn btn--sm"
+                          style={{ background: "#2563eb", borderColor: "#2563eb", color: "#fff" }}
+                          onClick={() => openGoogleMapsNavigation(tr.origin, tr.destination)}
+                        >
+                          🗺️ Lancer Google Maps (Navigation Chauffeur)
+                        </button>
+                        {isGpsWatching && reportForm.trip_id === tr.id ? (
+                          <button
+                            type="button"
+                            className="btn btn--sm"
+                            style={{ background: "#ef4444", borderColor: "#ef4444", color: "#fff" }}
+                            onClick={stopLiveGpsTracking}
+                          >
+                            ⏹️ Arrêter le suivi GPS
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn--sm"
+                            style={{ background: "#10b981", borderColor: "#10b981", color: "#fff" }}
+                            onClick={() => {
+                              setReportForm((f) => ({ ...f, trip_id: tr.id, kind: "departed" }));
+                              startLiveGpsTracking(tr.id);
+                            }}
+                          >
+                            🚀 Valider Départ & Démarrer Suivi GPS Smartphone
+                          </button>
+                        )}
                       </div>
                     </li>
                   ))}
               </ul>
+            )}
+
+            {/* Alerte GPS Chauffeur Actif */}
+            {isGpsWatching && (
+              <div className="card" style={{ background: "rgba(16, 185, 129, 0.12)", border: "1px solid #10b981", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                <div>
+                  <strong style={{ color: "#10b981" }}>🛰️ Suivi GPS Smartphone en Direct</strong>
+                  <p style={{ margin: "4px 0 0", fontSize: "var(--text-sm)" }}>{gpsWatchStatus}</p>
+                </div>
+                <button type="button" className="btn btn--sm" onClick={stopLiveGpsTracking} style={{ background: "#ef4444", borderColor: "#ef4444", color: "#fff" }}>
+                  Arrêter le GPS
+                </button>
+              </div>
             )}
 
             {/* Formulaire de signalement d'évolution en direct (Manuel + Connexion GPS / Google Maps / Mapbox) */}
@@ -1288,6 +1502,20 @@ export default function AgencyWorkspace() {
             )}
           </aside>
         </div>
+      )}
+
+      {/* ==================== 4b. DIAGRAMME DES VENTES ==================== */}
+      {tab === "analytics" && (
+        <SalesAnalyticsChart
+          analytics={salesAnalytics}
+          period={salesPeriod}
+          onPeriodChange={(p) => {
+            setSalesPeriod(p);
+            loadSalesAnalytics(p);
+          }}
+          currencyCode={cur}
+          minorUnits={minor}
+        />
       )}
 
       {/* ==================== 5. FLOTTE & LIGNES ==================== */}
@@ -1640,33 +1868,41 @@ export default function AgencyWorkspace() {
 
             <ul className="call-list">
               {staffRows.map((m) => (
-                <li key={m.user_id} className="call-row">
-                  <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                    <div>
-                      <strong>
-                        {m.first_name} {m.last_name}
-                      </strong>{" "}
-                      <span className="badge">{ROLE_LABELS[m.role]}</span>
+                <li key={m.user_id} className="call-row" style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                  <Avatar name={`${m.first_name} ${m.last_name}`} photo={m.avatar_url} size={48} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <strong style={{ fontSize: "var(--text-base)" }}>
+                          {m.first_name} {m.last_name}
+                        </strong>
+                        <span className="badge">{m.custom_role || ROLE_LABELS[m.role]}</span>
+                        {m.matricule && (
+                          <span className="badge mono" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10b981", borderColor: "#10b981" }}>
+                            Matricule : {m.matricule}
+                          </span>
+                        )}
+                      </div>
+                      <span className="badge">{m.status === "active" ? "Actif" : "Révoqué"}</span>
                     </div>
-                    <span className="badge">{m.status === "active" ? "Actif" : "Révoqué"}</span>
-                  </div>
-                  <span className="muted mono" style={{ fontSize: "var(--text-xs)" }}>
-                    {m.email} {m.phone ? `· ${m.phone}` : ""}
-                  </span>
-                  {m.role === "driver" && (
-                    <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                      {AVAIL_LABELS[m.availability ?? "available"]} ·{" "}
-                      {m.mood ? MOOD_LABELS[m.mood] : ""}{" "}
-                      {m.mood_note ? `— « ${m.mood_note} »` : ""}
+                    <span className="muted mono" style={{ fontSize: "var(--text-xs)" }}>
+                      {m.email} {m.phone ? `· ${m.phone}` : ""}
                     </span>
-                  )}
-                  {role === "owner" && m.role !== "owner" && (
-                    <div>
-                      <button type="button" className="chip" onClick={() => toggleStaff(m.user_id)}>
-                        {m.status === "active" ? "Verrouiller / Révoquer l’accès" : "Réactiver le compte"}
-                      </button>
-                    </div>
-                  )}
+                    {m.role === "driver" && (
+                      <div className="muted" style={{ fontSize: "var(--text-xs)", marginTop: 2 }}>
+                        {AVAIL_LABELS[m.availability ?? "available"]} ·{" "}
+                        {m.mood ? MOOD_LABELS[m.mood] : ""}{" "}
+                        {m.mood_note ? `— « ${m.mood_note} »` : ""}
+                      </div>
+                    )}
+                    {role === "owner" && m.role !== "owner" && (
+                      <div style={{ marginTop: 6 }}>
+                        <button type="button" className="chip" onClick={() => toggleStaff(m.user_id)}>
+                          {m.status === "active" ? "Verrouiller / Révoquer l’accès" : "Réactiver le compte"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -1677,7 +1913,7 @@ export default function AgencyWorkspace() {
               <form className="card form-grid" onSubmit={createStaffAccount}>
                 <h3 className="subheading" style={{ margin: 0 }}>Ajouter un compte isolé</h3>
                 <label className="field">
-                  <span className="field__label">Type de compte (droits cloisonnés)</span>
+                  <span className="field__label">Poste de base (permissions système)</span>
                   <select
                     className="select"
                     value={newStaff.role}
@@ -1690,6 +1926,27 @@ export default function AgencyWorkspace() {
                     <option value="accountant">Comptable (Recettes, remboursements, devis)</option>
                   </select>
                 </label>
+
+                <div className="search-grid">
+                  <label className="field">
+                    <span className="field__label">Intitulé personnalisé du poste (libre)</span>
+                    <input
+                      className="input"
+                      placeholder="Ex. Chef de Gare, Bagagiste..."
+                      value={newStaff.custom_role}
+                      onChange={(e) => setNewStaff({ ...newStaff, custom_role: e.target.value })}
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Matricule (optionnel, auto si vide)</span>
+                    <input
+                      className="input mono"
+                      placeholder="Ex. AG1-SEC-05"
+                      value={newStaff.matricule}
+                      onChange={(e) => setNewStaff({ ...newStaff, matricule: e.target.value })}
+                    />
+                  </label>
+                </div>
 
                 <div className="search-grid">
                   <label className="field">
@@ -1993,6 +2250,80 @@ export default function AgencyWorkspace() {
               ))}
             </ul>
           </aside>
+        </div>
+      )}
+
+      {/* Modal Changement de photo de profil */}
+      {avatarModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: 16,
+          }}
+          onClick={() => setAvatarModalOpen(false)}
+        >
+          <div
+            className="card form-grid"
+            style={{ maxWidth: 440, width: "100%", background: "var(--color-surface, #1e293b)", border: "1px solid var(--color-border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="subheading" style={{ margin: 0 }}>📷 Modifier ma photo de profil</h3>
+            <p className="muted" style={{ margin: 0, fontSize: "var(--text-sm)" }}>
+              Entrez l’URL directe d’une image ou téléversez une photo. Sans photo, un avatar stylisé type WhatsApp est affiché par défaut.
+            </p>
+            <div style={{ display: "flex", justifyContent: "center", margin: "10px 0" }}>
+              <Avatar name={`${agencySession.user.first_name} ${agencySession.user.last_name}`} photo={avatarPreview} size={84} />
+            </div>
+            <label className="field">
+              <span className="field__label">Lien direct de l’image (URL HTTPS)</span>
+              <input
+                className="input"
+                placeholder="https://images.unsplash.com/..."
+                value={avatarPreview}
+                onChange={(e) => setAvatarPreview(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">Ou charger une photo depuis votre appareil</span>
+              <input
+                type="file"
+                accept="image/*"
+                className="input"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      if (typeof reader.result === "string") {
+                        setAvatarPreview(reader.result);
+                      }
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+              />
+            </label>
+            <div className="chips" style={{ justifyContent: "flex-end", marginTop: 8 }}>
+              <button type="button" className="btn btn--ghost" onClick={() => setAvatarModalOpen(false)}>
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => updateAvatar(avatarPreview)}
+              >
+                Enregistrer ma photo
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

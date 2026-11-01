@@ -833,7 +833,40 @@
   border-radius: 50%;
 }
 
-/* ---------- Responsive ---------- */
+/* ---------- Responsive Spacieux & Magnifique sur TOUS écrans ---------- */
+
+/* Sièges interactifs Guichet & Embarquement */
+.seat--boarded {
+  background: #10b981 !important;
+  border-color: #059669 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.6) !important;
+}
+
+.seat--noshow {
+  background: #ef4444 !important;
+  border-color: #dc2626 !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 14px rgba(239, 68, 68, 0.6) !important;
+}
+
+/* Bannière Bus Plein animée */
+.bus-full-banner {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(5, 150, 105, 0.35) 100%);
+  border: 2px solid #10b981;
+  border-radius: var(--radius-md, 12px);
+  padding: 16px 20px;
+  animation: pulse-glow 2.4s infinite ease-in-out;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 16px rgba(16, 185, 129, 0.3); }
+  50% { box-shadow: 0 0 28px rgba(16, 185, 129, 0.65); }
+}
+
+/* Tablet & Mobile Breakpoints */
 @media (max-width: 960px) {
   .gateway__cards,
   .service-cards-grid,
@@ -851,5 +884,106 @@
     border-bottom: 1px solid var(--border);
     max-height: 210px;
   }
+  .agency-layout {
+    grid-template-columns: 1fr;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
 }
+
+/* Smartphones standards (<= 640px) */
+@media (max-width: 640px) {
+  .container {
+    padding-inline: clamp(10px, 3.5vw, 18px);
+  }
+  .workspace-banner {
+    padding: clamp(14px, 4vw, 22px);
+  }
+  .workspace-tabs {
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .workspace-tabs .chip {
+    white-space: nowrap;
+    font-size: 0.8rem;
+    padding: 6px 12px;
+  }
+  .search-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .kpi-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .kpi-card {
+    padding: 16px;
+  }
+  .kpi-card__value {
+    font-size: 1.55rem !important;
+  }
+  .gateway__topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .chips {
+    gap: 6px;
+  }
+  .chips .btn,
+  .chips .chip {
+    font-size: 0.82rem;
+  }
+  .card {
+    padding: clamp(14px, 3.5vw, 20px);
+  }
+  .seat-map {
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 10px 4px;
+  }
+  .seat {
+    width: 36px;
+    height: 36px;
+    font-size: 0.72rem;
+  }
+}
+
+/* Écrans très petits (< 380px) */
+@media (max-width: 380px) {
+  .container {
+    padding-inline: 8px;
+  }
+  .display-xl {
+    font-size: 1.45rem !important;
+  }
+  .btn, .chip {
+    padding: 6px 10px;
+    font-size: 0.78rem;
+  }
+  .seat {
+    width: 30px;
+    height: 30px;
+    font-size: 0.65rem;
+  }
+}
+
+/* Écrans géants et ultra-larges (> 1440px) */
+@media (min-width: 1441px) {
+  .container {
+    max-width: 1480px;
+  }
+  .agency-layout {
+    grid-template-columns: 1fr 440px;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .service-cards-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 

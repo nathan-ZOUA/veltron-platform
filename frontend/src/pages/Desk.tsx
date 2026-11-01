@@ -36,6 +36,7 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   const [fill, setFill] = useState<FillData | null>(null);
 
   const [scan, setScan] = useState("");
+  const [inspectSeat, setInspectSeat] = useState<number | null>(null);
   const [weights, setWeights] = useState<Record<number, string>>({});
   const [lateNotes, setLateNotes] = useState<Record<number, string>>({});
   const [consent, setConsent] = useState<Record<number, boolean>>({});
@@ -236,12 +237,6 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  const seatClass: Record<string, string> = {
-    valid: "seat--paid",
-    boarded: "seat--boarded",
-    no_show: "seat--noshow",
-  };
-
   return (
     <div className={embedded ? "desk page-embedded" : "container page desk"}>
       <aside className="desk__trips">
@@ -380,32 +375,200 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
               )}
             </motion.div>
 
+            {/* Indicateur Bus Plein (100% complet) */}
+            {manifest.seats.length > 0 && freeSeatsList.length === 0 && !manifest.tickets.some((k) => k.status === "no_show") && (
+              <div
+                className="bus-full-banner"
+                style={{
+                  background: "linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.35))",
+                  border: "2px solid #10b981",
+                  borderRadius: "var(--radius-md)",
+                  padding: "var(--space-4)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 12,
+                  boxShadow: "0 0 20px rgba(16, 185, 129, 0.3)",
+                }}
+              >
+                <div>
+                  <span className="badge" style={{ background: "#10b981", color: "#ffffff", fontWeight: 700 }}>
+                    🟢 BUS PLEIN (100 % COMPLET)
+                  </span>
+                  <h3 style={{ margin: "6px 0 0", color: "#10b981" }}>
+                    Toutes les places sont occupées ! Le bus est prêt pour le départ.
+                  </h3>
+                </div>
+                {canManage && manifest.status !== "departed" && manifest.status !== "completed" && (
+                  <button
+                    type="button"
+                    className="btn btn--lg"
+                    style={{ background: "#10b981", color: "#ffffff", fontWeight: 700 }}
+                    onClick={() => setTripStatus("departed")}
+                  >
+                    🚀 Valider & Marquer Départ du Bus
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="desk-grid">
-              {/* Plan temps réel des sièges + Actions de remplissage */}
+              {/* Plan temps réel des sièges + Contrôle tactile passagers */}
               <div className="card form-grid">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <h3 className="subheading" style={{ margin: 0 }}>Plan des places ({freeSeatsList.length} libres)</h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <h3 className="subheading" style={{ margin: 0 }}>
+                    Plan des places ({freeSeatsList.length} libres · {manifest.tickets.filter((k) => k.status === "boarded").length} à bord)
+                  </h3>
+                  <div className="chips">
+                    <span className="badge" style={{ background: "#10b981", color: "#fff" }}>🟢 Vert = À bord</span>
+                    <span className="badge" style={{ background: "#ef4444", color: "#fff" }}>🔴 Rouge = Absent</span>
+                    <span className="badge" style={{ background: "#3b82f6", color: "#fff" }}>🔵 Bleu = Réservé</span>
+                  </div>
                 </div>
 
                 {manifest.layout && (
                   <SeatGrid
                     seatsPerRow={manifest.layout.seats_per_row}
                     seats={manifest.seats.map((s) => {
-                      const k = manifest.tickets.find((x) => x.seat_no === s.seat_no && x.status !== "no_show");
+                      const k = manifest.tickets.find((x) => x.seat_no === s.seat_no);
+                      let cls = "";
+                      if (k) {
+                        if (k.status === "boarded") cls = "seat--boarded";
+                        else if (k.status === "no_show") cls = "seat--noshow";
+                        else cls = "seat--paid";
+                      } else if (walkIn.seat_id === s.id) {
+                        cls = "seat--selected";
+                      }
+                      if (inspectSeat === s.id) {
+                        cls += " is-active";
+                      }
                       return {
                         ...s,
-                        disabled: Boolean(k),
-                        className: k
-                          ? seatClass[k.status]
-                          : walkIn.seat_id === s.id
-                            ? "seat--selected"
-                            : "",
-                        title: k ? `${k.reference} · ${k.passenger_name}` : "Cliquez pour choisir ce siège libre au guichet",
+                        disabled: false,
+                        className: cls,
+                        title: k
+                          ? `Siège #${s.seat_no} · ${k.passenger_name} (${k.status === "boarded" ? "À bord" : k.status === "no_show" ? "Absent" : "Réservé"})`
+                          : `Siège #${s.seat_no} · Libre`,
                       };
                     })}
-                    onSelect={(s) => setWalkIn((cur) => ({ ...cur, seat_id: s.id }))}
+                    onSelect={(s) => {
+                      setInspectSeat(s.id);
+                      const k = manifest.tickets.find((x) => x.seat_no === s.seat_no);
+                      if (!k || k.status === "no_show") {
+                        setWalkIn((cur) => ({ ...cur, seat_id: s.id }));
+                      }
+                    }}
                   />
                 )}
+
+                {/* Panneau de contrôle interactif du siège sélectionné */}
+                {inspectSeat && (() => {
+                  const sObj = manifest.seats.find((s) => s.id === inspectSeat);
+                  const tObj = sObj ? manifest.tickets.find((k) => k.seat_no === sObj.seat_no) : null;
+                  return (
+                    <div
+                      className="card form-grid"
+                      style={{
+                        background: "rgba(255, 255, 255, 0.05)",
+                        border: "2px solid var(--accent)",
+                        padding: "var(--space-3) var(--space-4)",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                        <strong>
+                          Siège #{sObj?.seat_no} ({sObj?.seat_class}) — {tObj ? tObj.passenger_name : "Siège Libre"}
+                        </strong>
+                        <button type="button" className="btn btn--sm btn--ghost" onClick={() => setInspectSeat(null)}>
+                          ✕ Fermer
+                        </button>
+                      </div>
+
+                      {tObj ? (
+                        <>
+                          <div className="muted" style={{ fontSize: "var(--text-xs)" }}>
+                            Réf : <strong className="mono">{tObj.reference}</strong> · Statut actuel :{" "}
+                            <span className="badge">
+                              {tObj.status === "boarded" ? "🟢 À bord" : tObj.status === "no_show" ? "🔴 Absent (No-show)" : "🔵 Payé / Réservé"}
+                            </span>
+                            {tObj.phone && ` · Tél : ${tObj.phone}`}
+                            {tObj.late_notice && ` · ⏱ ${tObj.late_notice}`}
+                          </div>
+
+                          <div className="chips" style={{ marginTop: 4 }}>
+                            {tObj.status === "valid" && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn btn--sm"
+                                  style={{ background: "#10b981", color: "#ffffff", fontWeight: 700 }}
+                                  onClick={() => act(tObj.id, "board")}
+                                >
+                                  🟢 Faire monter à bord (Siège devient Vert)
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--sm"
+                                  style={{ background: "#ef4444", color: "#ffffff", fontWeight: 700 }}
+                                  onClick={() => act(tObj.id, "absent")}
+                                >
+                                  🔴 Déclarer Absent (Siège devient Rouge)
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--sm btn--ghost"
+                                  onClick={() => act(tObj.id, "late", "Arrive sous peu")}
+                                >
+                                  ⏱ En retard
+                                </button>
+                              </>
+                            )}
+
+                            {tObj.status === "boarded" && (
+                              <button type="button" className="btn btn--sm btn--ghost" onClick={() => act(tObj.id, "undo")}>
+                                ↩ Annuler statut à bord
+                              </button>
+                            )}
+
+                            {tObj.status === "no_show" && (
+                              <>
+                                <button type="button" className="btn btn--sm" onClick={openFill}>
+                                  🔄 Remplacer par un client sans bagage d’un autre bus
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--sm btn--ghost"
+                                  onClick={() => setWalkIn((cur) => ({ ...cur, seat_id: sObj!.id }))}
+                                >
+                                  💵 Vente directe guichet sur ce siège
+                                </button>
+                                <button type="button" className="btn btn--sm btn--ghost" onClick={() => act(tObj.id, "undo")}>
+                                  ↩ Réintégrer passager initial
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
+                            Ce siège est actuellement libre.
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn--sm"
+                            onClick={() => setWalkIn((cur) => ({ ...cur, seat_id: sObj!.id }))}
+                          >
+                            💵 Choisir pour vente guichet
+                          </button>
+                          <button type="button" className="btn btn--sm btn--ghost" onClick={openFill}>
+                            🔄 Remplacer par un passager sans bagage
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {canManage && (
                   <button type="button" className="btn" onClick={openFill}>

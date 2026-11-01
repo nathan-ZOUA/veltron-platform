@@ -223,14 +223,18 @@
   color: var(--accent-contrast);
 }
 .seat--boarded {
-  background: var(--success);
-  border-color: var(--success);
-  color: #11231b;
+  background: #10b981 !important;
+  border-color: #059669 !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
 }
 .seat--noshow {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: #2a1313;
+  background: #ef4444 !important;
+  border-color: #dc2626 !important;
+  color: #ffffff !important;
+  font-weight: 700;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
 }
 .seat--vip {
   border-color: var(--warning);

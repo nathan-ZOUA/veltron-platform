@@ -54,7 +54,7 @@ route('POST', '/api/agency/settings', function () {
 // ---------- Comptes du personnel (owner uniquement : création & révocation instantanée) ----------
 route('GET', '/api/agency/staff', function () {
     $s = require_agency(['owner', 'manager']);
-    $rows = all("SELECT st.user_id, st.role, st.job_title, st.status, st.last_login_at,
+    $rows = all("SELECT st.user_id, st.role, st.job_title, st.custom_role, st.matricule, st.avatar_url, st.status, st.last_login_at,
                         u.email, u.first_name, u.last_name, u.phone,
                         d.id AS driver_id, d.availability, d.mood, d.mood_note
                  FROM agency_staff st
@@ -79,7 +79,20 @@ route('POST', '/api/agency/staff', function () {
     $last = str_in($in['last_name'] ?? '', 80);
     $phone = str_in($in['phone'] ?? '', 25) ?: null;
     $jobTitle = str_in($in['job_title'] ?? '', 80) ?: null;
+    $customRole = str_in($in['custom_role'] ?? $jobTitle ?? '', 100) ?: null;
     $password = (string) ($in['password'] ?? '');
+
+    // Génération automatique du matricule unique s'il n'est pas fourni manuellement
+    $prefix = match ($role) {
+        'secretary'  => 'SEC',
+        'driver'     => 'CHAUF',
+        'manager'    => 'PRG',
+        'accountant' => 'CPT',
+        default      => 'STF',
+    };
+    $countStaff = (int) (one("SELECT COUNT(*) AS c FROM agency_staff WHERE agency_id = ? AND role = ?", [$s['agency_id'], $role])['c'] ?? 0) + 1;
+    $matricule = strtoupper(trim((string) ($in['matricule'] ?? ''))) ?: sprintf('AG%d-%s-%02d', (int) $s['agency_id'], $prefix, $countStaff);
+    $avatarUrl = str_in($in['avatar_url'] ?? '', 500000) ?: null;
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) fail(422, 'invalid_email', 'E-mail invalide.');
     if ($first === '' || $last === '') fail(422, 'invalid_name', 'Prénom et nom requis.');
@@ -88,14 +101,14 @@ route('POST', '/api/agency/staff', function () {
         fail(409, 'email_taken', 'Cette adresse e-mail possède déjà un compte VELTRON.');
     }
 
-    $userId = transaction(function () use ($s, $role, $email, $first, $last, $phone, $jobTitle, $password) {
+    $userId = transaction(function () use ($s, $role, $email, $first, $last, $phone, $jobTitle, $customRole, $matricule, $avatarUrl, $password) {
         $algo = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
-        q('INSERT INTO users (email, phone, password_hash, first_name, last_name) VALUES (?,?,?,?,?)',
-            [$email, $phone, password_hash($password, $algo), $first, $last]);
+        q('INSERT INTO users (email, phone, password_hash, first_name, last_name, avatar_url) VALUES (?,?,?,?,?,?)',
+            [$email, $phone, password_hash($password, $algo), $first, $last, $avatarUrl]);
         $uid = (int) db()->lastInsertId();
 
-        q('INSERT INTO agency_staff (agency_id, user_id, role, job_title, invited_by) VALUES (?,?,?,?,?)',
-            [$s['agency_id'], $uid, $role, $jobTitle, $s['id']]);
+        q('INSERT INTO agency_staff (agency_id, user_id, role, job_title, custom_role, matricule, avatar_url, invited_by) VALUES (?,?,?,?,?,?,?,?)',
+            [$s['agency_id'], $uid, $role, $jobTitle, $customRole, $matricule, $avatarUrl, $s['id']]);
 
         if ($role === 'driver') {
             q('INSERT INTO drivers (agency_id, user_id, photo_consent, licence_verified) VALUES (?,?, 1, 1)',
@@ -106,11 +119,11 @@ route('POST', '/api/agency/staff', function () {
         $gen = one("SELECT id FROM chat_groups WHERE agency_id = ? AND kind = 'general' LIMIT 1", [$s['agency_id']]);
         if ($gen) q('INSERT IGNORE INTO chat_members (group_id, user_id, is_admin) VALUES (?,?,0)', [$gen['id'], $uid]);
 
-        audit((int) $s['id'], $s['agency_id'], 'staff.create', 'user', $uid, ['role' => $role]);
+        audit((int) $s['id'], $s['agency_id'], 'staff.create', 'user', $uid, ['role' => $role, 'matricule' => $matricule]);
         return $uid;
     });
 
-    json_out(['user_id' => $userId, 'role' => $role], 201);
+    json_out(['user_id' => $userId, 'role' => $role, 'matricule' => $matricule], 201);
 });
 
 route('POST', '/api/agency/staff/{userId}/toggle', function (array $p) {
@@ -511,6 +524,11 @@ route('POST', '/api/agency/driver/trips/{id}/report', function (array $p) {
             $comm = settle_trip_commission((int) $trip['id'], 'departed');
         }
 
+        if ($lat !== null && $lng !== null) {
+            q("UPDATE trips SET current_lat = ?, current_lng = ?, current_speed_kmh = ?, current_progress_pct = ?, last_gps_at = UTC_TIMESTAMP() WHERE id = ?",
+                [$lat, $lng, $speed, $progress, $trip['id']]);
+        }
+
         q('INSERT INTO trip_status_updates (trip_id, user_id, kind, cause, delay_minutes, lat, lng, speed_kmh, progress_pct, note)
            VALUES (?,?,?,?,?,?,?,?,?,?)',
             [$trip['id'], $s['id'], $kind, $cause, $delayMin, $lat, $lng, $speed, $progress, $note]);
@@ -519,6 +537,211 @@ route('POST', '/api/agency/driver/trips/{id}/report', function (array $p) {
     });
 
     json_out(['ok' => true, 'commission' => $commission]);
+});
+
+// Ping GPS continu haute fréquence du chauffeur depuis son smartphone
+route('POST', '/api/agency/driver/trips/{id}/live-ping', function (array $p) {
+    $s = require_agency(['driver', 'owner', 'manager']);
+    $trip = one('SELECT id, status FROM trips WHERE id = ? AND agency_id = ?', [(int) $p['id'], $s['agency_id']])
+        ?? fail(404, 'not_found', 'Trajet introuvable.');
+
+    $in = input();
+    $lat = isset($in['lat']) && $in['lat'] !== '' ? (float) $in['lat'] : null;
+    $lng = isset($in['lng']) && $in['lng'] !== '' ? (float) $in['lng'] : null;
+    $speed = isset($in['speed_kmh']) ? max(0, min(160, (int) $in['speed_kmh'])) : null;
+    $progress = isset($in['progress_pct']) ? max(0, min(100, (int) $in['progress_pct'])) : null;
+
+    if ($lat !== null && $lng !== null) {
+        q("UPDATE trips SET current_lat = ?, current_lng = ?, current_speed_kmh = ?, current_progress_pct = ?, last_gps_at = UTC_TIMESTAMP(), status = IF(status = 'scheduled' OR status = 'boarding', 'departed', status) WHERE id = ?",
+            [$lat, $lng, $speed, $progress, $trip['id']]);
+        q("UPDATE drivers SET availability = 'on_trip' WHERE agency_id = ? AND user_id = ?", [$s['agency_id'], $s['id']]);
+    }
+
+    json_out(['ok' => true, 'lat' => $lat, 'lng' => $lng, 'speed_kmh' => $speed]);
+});
+
+// Vision d'ensemble de la flotte en temps réel (GPS, vitesse, progression, retards, chauffeur)
+route('GET', '/api/agency/fleet-live', function () {
+    $s = require_agency(['owner', 'manager', 'secretary', 'accountant', 'staff']);
+    $trips = all("SELECT t.id, t.status, t.departs_at, t.arrives_at, t.delay_minutes,
+                         t.current_lat, t.current_lng, t.current_speed_kmh, t.current_progress_pct, t.last_gps_at,
+                         r.origin, r.destination, r.distance_km,
+                         b.label AS bus_label, b.plate, b.seat_count, b.has_gps,
+                         (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.status IN ('valid','boarded')) AS booked_seats,
+                         (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.status = 'boarded') AS boarded_seats,
+                         (SELECT CONCAT(u.first_name, ' ', u.last_name) FROM trip_drivers td JOIN drivers d ON d.id = td.driver_id JOIN users u ON u.id = d.user_id WHERE td.trip_id = t.id LIMIT 1) AS driver_name,
+                         (SELECT u.phone FROM trip_drivers td JOIN drivers d ON d.id = td.driver_id JOIN users u ON u.id = d.user_id WHERE td.trip_id = t.id LIMIT 1) AS driver_phone
+                  FROM trips t
+                  JOIN routes r ON r.id = t.route_id
+                  JOIN buses b ON b.id = t.bus_id
+                  WHERE t.agency_id = ? AND t.status IN ('scheduled', 'boarding', 'departed')
+                  ORDER BY t.departs_at ASC", [$s['agency_id']]);
+
+    foreach ($trips as &$tr) {
+        $tr['booked_seats'] = (int) $tr['booked_seats'];
+        $tr['boarded_seats'] = (int) $tr['boarded_seats'];
+        $tr['seat_count'] = (int) $tr['seat_count'];
+        $tr['is_full'] = $tr['booked_seats'] >= $tr['seat_count'];
+        $tr['departs_at'] = iso($tr['departs_at']);
+        $tr['arrives_at'] = iso($tr['arrives_at']);
+        $tr['last_gps_at'] = iso($tr['last_gps_at']);
+    }
+    json_out($trips);
+});
+
+// Mise à jour de la photo de profil (WhatsApp style) pour n'importe quel membre du personnel
+route('POST', '/api/agency/me/avatar', function () {
+    $s = require_agency();
+    $in = input();
+    $avatarUrl = str_in($in['avatar_url'] ?? '', 1000000) ?: null;
+
+    q("UPDATE agency_staff SET avatar_url = ? WHERE agency_id = ? AND user_id = ?",
+        [$avatarUrl, $s['agency_id'], $s['id']]);
+    q("UPDATE users SET avatar_url = ? WHERE id = ?", [$avatarUrl, $s['id']]);
+
+    json_out(['ok' => true, 'avatar_url' => $avatarUrl]);
+});
+
+// Diagramme & Statistiques de ventes par période (Journalière, Hebdomadaire, Mensuelle, Annuelle)
+route('GET', '/api/agency/sales-analytics', function () {
+    $s = require_agency(['owner', 'manager', 'secretary', 'accountant']);
+    $period = strtolower(trim((string) ($_GET['period'] ?? 'weekly')));
+    if (!in_array($period, ['daily', 'weekly', 'monthly', 'yearly'], true)) {
+        $period = 'weekly';
+    }
+
+    $agencyId = (int) $s['agency_id'];
+    $cur = one("SELECT currency_code FROM agencies WHERE id = ?", [$agencyId])['currency_code'] ?? 'XAF';
+
+    // Agrégation selon la période choisie
+    $dataPoints = [];
+    if ($period === 'daily') {
+        // 24 heures de la journée en cours
+        $sql = "SELECT HOUR(p.created_at) AS hr,
+                       COALESCE(SUM(p.amount), 0) AS total_gross,
+                       COALESCE(SUM(p.agency_net_amount), 0) AS total_net,
+                       COALESCE(SUM(p.platform_fee_amount), 0) AS total_fee,
+                       COUNT(p.id) AS tickets_count
+                FROM payments p
+                JOIN bookings b ON b.id = p.booking_id
+                WHERE b.agency_id = ? AND p.status = 'succeeded' AND DATE(p.created_at) = CURDATE()
+                GROUP BY HOUR(p.created_at)
+                ORDER BY hr ASC";
+        $rows = all($sql, [$agencyId]);
+        $map = [];
+        foreach ($rows as $r) $map[(int)$r['hr']] = $r;
+        for ($h = 0; $h < 24; $h += 2) {
+            $r = $map[$h] ?? null;
+            $dataPoints[] = [
+                'label' => sprintf('%02dh', $h),
+                'gross' => (int) ($r['total_gross'] ?? 0),
+                'net' => (int) ($r['total_net'] ?? 0),
+                'commission' => (int) ($r['total_fee'] ?? 0),
+                'tickets' => (int) ($r['tickets_count'] ?? 0),
+            ];
+        }
+    } elseif ($period === 'weekly') {
+        // 7 derniers jours
+        $sql = "SELECT DATE(p.created_at) AS dt,
+                       DAYNAME(p.created_at) AS day_name,
+                       COALESCE(SUM(p.amount), 0) AS total_gross,
+                       COALESCE(SUM(p.agency_net_amount), 0) AS total_net,
+                       COALESCE(SUM(p.platform_fee_amount), 0) AS total_fee,
+                       COUNT(p.id) AS tickets_count
+                FROM payments p
+                JOIN bookings b ON b.id = p.booking_id
+                WHERE b.agency_id = ? AND p.status = 'succeeded' AND p.created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+                GROUP BY DATE(p.created_at)
+                ORDER BY dt ASC";
+        $rows = all($sql, [$agencyId]);
+        $map = [];
+        foreach ($rows as $r) $map[$r['dt']] = $r;
+        $dayNamesFr = ['Mon'=>'Lun', 'Tue'=>'Mar', 'Wed'=>'Mer', 'Thu'=>'Jeu', 'Fri'=>'Ven', 'Sat'=>'Sam', 'Sun'=>'Dim'];
+        for ($i = 6; $i >= 0; $i--) {
+            $dt = date('Y-m-d', strtotime("-$i days"));
+            $dShort = date('D', strtotime($dt));
+            $r = $map[$dt] ?? null;
+            $dataPoints[] = [
+                'label' => ($dayNamesFr[$dShort] ?? $dShort) . ' ' . date('d/m', strtotime($dt)),
+                'date' => $dt,
+                'gross' => (int) ($r['total_gross'] ?? 0),
+                'net' => (int) ($r['total_net'] ?? 0),
+                'commission' => (int) ($r['total_fee'] ?? 0),
+                'tickets' => (int) ($r['tickets_count'] ?? 0),
+            ];
+        }
+    } elseif ($period === 'monthly') {
+        // 4 semaines du mois
+        $sql = "SELECT WEEK(p.created_at, 1) AS wk,
+                       MIN(DATE(p.created_at)) AS start_dt,
+                       COALESCE(SUM(p.amount), 0) AS total_gross,
+                       COALESCE(SUM(p.agency_net_amount), 0) AS total_net,
+                       COALESCE(SUM(p.platform_fee_amount), 0) AS total_fee,
+                       COUNT(p.id) AS tickets_count
+                FROM payments p
+                JOIN bookings b ON b.id = p.booking_id
+                WHERE b.agency_id = ? AND p.status = 'succeeded' AND p.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                GROUP BY WEEK(p.created_at, 1)
+                ORDER BY wk ASC";
+        $rows = all($sql, [$agencyId]);
+        foreach ($rows as $idx => $r) {
+            $dataPoints[] = [
+                'label' => 'Sem. ' . ($idx + 1) . ' (' . date('d/m', strtotime((string)$r['start_dt'])) . ')',
+                'gross' => (int) $r['total_gross'],
+                'net' => (int) $r['total_net'],
+                'commission' => (int) $r['total_fee'],
+                'tickets' => (int) $r['tickets_count'],
+            ];
+        }
+        if (empty($dataPoints)) {
+            for ($w = 1; $w <= 4; $w++) {
+                $dataPoints[] = ['label' => "Semaine $w", 'gross' => 0, 'net' => 0, 'commission' => 0, 'tickets' => 0];
+            }
+        }
+    } else {
+        // 12 mois de l'année
+        $sql = "SELECT MONTH(p.created_at) AS m,
+                       COALESCE(SUM(p.amount), 0) AS total_gross,
+                       COALESCE(SUM(p.agency_net_amount), 0) AS total_net,
+                       COALESCE(SUM(p.platform_fee_amount), 0) AS total_fee,
+                       COUNT(p.id) AS tickets_count
+                FROM payments p
+                JOIN bookings b ON b.id = p.booking_id
+                WHERE b.agency_id = ? AND p.status = 'succeeded' AND YEAR(p.created_at) = YEAR(CURDATE())
+                GROUP BY MONTH(p.created_at)
+                ORDER BY m ASC";
+        $rows = all($sql, [$agencyId]);
+        $map = [];
+        foreach ($rows as $r) $map[(int)$r['m']] = $r;
+        $monthsFr = [1=>'Jan',2=>'Fév',3=>'Mar',4=>'Avr',5=>'Mai',6=>'Juin',7=>'Juil',8=>'Aoû',9=>'Sep',10=>'Oct',11=>'Nov',12=>'Déc'];
+        for ($m = 1; $m <= 12; $m++) {
+            $r = $map[$m] ?? null;
+            $dataPoints[] = [
+                'label' => $monthsFr[$m],
+                'gross' => (int) ($r['total_gross'] ?? 0),
+                'net' => (int) ($r['total_net'] ?? 0),
+                'commission' => (int) ($r['total_fee'] ?? 0),
+                'tickets' => (int) ($r['tickets_count'] ?? 0),
+            ];
+        }
+    }
+
+    $totalGross = array_sum(array_column($dataPoints, 'gross'));
+    $totalNet = array_sum(array_column($dataPoints, 'net'));
+    $totalCommission = array_sum(array_column($dataPoints, 'commission'));
+    $totalTickets = array_sum(array_column($dataPoints, 'tickets'));
+
+    json_out([
+        'period' => $period,
+        'currency_code' => $cur,
+        'data' => $dataPoints,
+        'summary' => [
+            'total_gross' => $totalGross,
+            'total_net' => $totalNet,
+            'total_commission' => $totalCommission,
+            'total_tickets' => $totalTickets,
+        ],
+    ]);
 });
 
 // =============================================================================
