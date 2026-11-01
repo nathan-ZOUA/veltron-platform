@@ -24,8 +24,43 @@ foreach (['catalog', 'auth', 'booking', 'services', 'desk', 'agency', 'agency_wo
     require __DIR__ . "/../src/routes/$module.php";
 }
 
-$method = $_SERVER['REQUEST_METHOD'];
-$path = rtrim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/', '/') ?: '/';
+$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$path = rtrim($rawPath, '/') ?: '/';
+
+// En production (frontend compilé dans public/), servir les fichiers statiques et le routeur SPA React
+if (!str_starts_with($path, '/api')) {
+    $candidate = realpath(__DIR__ . $rawPath);
+    if ($candidate && str_starts_with($candidate, realpath(__DIR__)) && is_file($candidate) && basename($candidate) !== 'index.php') {
+        if (PHP_SAPI === 'cli-server') {
+            return false;
+        }
+        $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+        $mimes = [
+            'html' => 'text/html; charset=utf-8',
+            'css'  => 'text/css; charset=utf-8',
+            'js'   => 'application/javascript; charset=utf-8',
+            'json' => 'application/json; charset=utf-8',
+            'svg'  => 'image/svg+xml',
+            'png'  => 'image/png',
+            'jpg'  => 'image/jpeg',
+            'jpeg' => 'image/jpeg',
+            'webp' => 'image/webp',
+            'mp4'  => 'video/mp4',
+            'ico'  => 'image/x-icon',
+            'woff2'=> 'font/woff2',
+        ];
+        header('Content-Type: ' . ($mimes[$ext] ?? 'application/octet-stream'));
+        readfile($candidate);
+        exit;
+    }
+    $spaIndex = __DIR__ . '/index.html';
+    if (is_file($spaIndex)) {
+        header('Content-Type: text/html; charset=utf-8');
+        readfile($spaIndex);
+        exit;
+    }
+}
 
 try {
     foreach ($ROUTES as [$m, $regex, $handler]) {

@@ -50,7 +50,10 @@ function env(string $key, ?string $default = null): ?string
     return ($values[$key] ?? '') !== '' ? $values[$key] : $default;
 }
 
-function is_local(): bool { return env('APP_ENV', 'local') === 'local'; }
+function is_local(): bool
+{
+    return in_array(env('APP_ENV', 'local'), ['local', 'demo'], true) || env('SHOW_OTP_HINT', '1') === '1';
+}
 
 // Petits utilitaires tolérants à l'absence de l'extension mbstring
 function lower(string $s): string { return function_exists('mb_strtolower') ? mb_strtolower($s, 'UTF-8') : strtolower($s); }
@@ -58,13 +61,36 @@ function cut(string $s, int $len): string { return function_exists('mb_substr') 
 function str_in(mixed $v, int $max = 255): string { return cut(trim((string) $v), $max); }
 
 // ---------- Base de données (PDO, requêtes préparées uniquement) ----------
+function db_config(): array
+{
+    $url = env('MYSQL_URL') ?: env('DATABASE_URL');
+    if ($url && str_starts_with($url, 'mysql://')) {
+        $p = parse_url($url);
+        return [
+            'host' => $p['host'] ?? '127.0.0.1',
+            'port' => (string) ($p['port'] ?? '3306'),
+            'name' => ltrim($p['path'] ?? '/veltron', '/') ?: 'veltron',
+            'user' => isset($p['user']) ? rawurldecode($p['user']) : 'root',
+            'pass' => isset($p['pass']) ? rawurldecode($p['pass']) : '',
+        ];
+    }
+    return [
+        'host' => env('MYSQLHOST') ?: env('DB_HOST', '127.0.0.1'),
+        'port' => env('MYSQLPORT') ?: env('DB_PORT', '3306'),
+        'name' => env('MYSQLDATABASE') ?: env('DB_NAME', 'veltron'),
+        'user' => env('MYSQLUSER') ?: env('DB_USER', 'root'),
+        'pass' => env('MYSQLPASSWORD') ?? env('DB_PASS', ''),
+    ];
+}
+
 function db(): PDO
 {
     static $pdo = null;
     if ($pdo === null) {
+        $cfg = db_config();
         $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
-            env('DB_HOST', '127.0.0.1'), env('DB_PORT', '3306'), env('DB_NAME', 'veltron'));
-        $pdo = new PDO($dsn, env('DB_USER', 'root'), env('DB_PASS', ''), [
+            $cfg['host'], $cfg['port'], $cfg['name']);
+        $pdo = new PDO($dsn, $cfg['user'], $cfg['pass'], [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
