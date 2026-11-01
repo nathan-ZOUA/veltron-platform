@@ -11,6 +11,13 @@ export const zh: DeepPartial<Translation> = {
     dashboard: "控制台",
     login: "登录",
     menu: "打开菜单",
+    agencies: "客运公司",
+    myTickets: "我的车票",
+    rental: "客车包租",
+    sales: "客车买卖",
+    loyalty: "会员积分",
+    partner: "成为合作伙伴",
+    logout: "退出登录",
   },
 
   common: {
@@ -158,6 +165,27 @@ export const zh: DeepPartial<Translation> = {
     visualTitle: "你的下一段旅程从这里开始。",
   },
 
+  gateway: {
+    badge: "国际城际交通综合平台",
+    title1: "欢迎来到",
+    title2: "选择您的专属空间。",
+    lead: "两个完全独立且安全的环境：一个专为旅客出行便利打造，另一个专为运输公司的卓越运营而生。",
+    passenger: {
+      tag: "旅客专属空间",
+      title: "我是乘客",
+      desc: "二维码车票预订、客车租赁与买卖、基于实时路况的GPS与车速动态追踪及年度会员积分方案。",
+      pills: ["车票预订", "租赁与采购", "实时车速与定位", "会员积分"],
+      cta: "进入旅客空间",
+    },
+    agency: {
+      tag: "运输公司与团队空间",
+      title: "我是客运公司",
+      desc: "创建AI审核的客运机构或使用安全PIN码登录：6种权限隔离角色、班次调度发布、智慧窗口售票与端到端加密群聊。",
+      pills: ["创建我的公司", "已有公司 (机构码 + PIN)", "6大隔离角色", "端到端加密"],
+      cta: "进入客运公司空间",
+    },
+    supervision: "VELTRON 平台所有者监管入口",
+  },
   footer: {
     rights: "保留所有权利。",
     madeBy: "设计与开发：",

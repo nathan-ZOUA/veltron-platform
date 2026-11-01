@@ -19,11 +19,11 @@ export default function PassengerLayout() {
 
   const links = [
     { to: "/passager", label: t("nav.home"), end: true },
-    { to: "/passager/agences", label: "Réservation" },
-    { to: "/passager/location", label: "Location bus" },
-    { to: "/passager/achat-bus", label: "Achat bus" },
+    { to: "/passager/agences", label: t("nav.booking") },
+    { to: "/passager/location", label: t("nav.rental") },
+    { to: "/passager/achat-bus", label: t("nav.sales") },
     { to: "/passager/suivi", label: t("nav.tracking") },
-    { to: "/passager/fidelite", label: "Fidélité" },
+    { to: "/passager/fidelite", label: t("nav.loyalty") },
     ...(user ? [{ to: "/passager/mes-billets", label: t("nav.myTickets") }] : []),
   ];
 

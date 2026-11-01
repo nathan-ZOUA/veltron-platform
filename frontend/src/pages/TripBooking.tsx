@@ -321,7 +321,7 @@ export default function TripBooking() {
                   </div>
 
                   <p className="demo-note">
-                    ⚡ En validant, <strong>{money(booking.total)}</strong> est <strong>déduit directement de votre compte ({payerAccount || "enregistré"})</strong> et reversé automatiquement sur le compte de l’agence <strong>{trip.agency_name}</strong> (99,5 % net agence, 0,5 % VELTRON). Vous gagnerez <strong>{(trip.points_per_trip ?? 10) * selected.length} points fidélité</strong>.
+                    ⚡ En validant, <strong>{money(booking.total)}</strong> est <strong>déduit directement de votre compte ({payerAccount || "enregistré"})</strong> et reversé automatiquement sur le compte de l’agence <strong>{trip.agency_name}</strong>. Vous gagnerez <strong>{(trip.points_per_trip ?? 10) * selected.length} points fidélité</strong>.
                   </p>
                   <button
                     type="button"

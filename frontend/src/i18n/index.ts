@@ -40,7 +40,8 @@ function readSavedLanguage(): LanguageCode {
 
 // Met à jour <html lang> et <html dir> (indispensable pour l'arabe).
 function applyLanguageToDocument(code: string) {
-  const info = LANGUAGES.find((l) => l.code === code) ?? LANGUAGES[0];
+  const norm = (code || "fr").split("-")[0].toLowerCase();
+  const info = LANGUAGES.find((l) => l.code === norm) ?? LANGUAGES[0];
   document.documentElement.lang = info.code;
   document.documentElement.dir = info.dir;
 }

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import ThemeToggle from "../components/ThemeToggle";
 import LanguageSwitcher from "../components/LanguageSwitcher";
 import AuthorBadge from "../components/AuthorBadge";
@@ -7,6 +8,8 @@ import AuthorBadge from "../components/AuthorBadge";
 // Page d'ouverture initiale de VELTRON : demande immédiatement si le visiteur
 // est Passager ou Agence, avec arrière-plans vidéo et photos dédiés.
 export default function Gateway() {
+  const { t } = useTranslation();
+
   return (
     <div className="gateway">
       <video className="gateway__video" autoPlay muted loop playsInline poster="/media/passengers-welcome.jpeg">
@@ -36,15 +39,14 @@ export default function Gateway() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.65 }}
         >
-          <span className="badge">Plateforme internationale de transport interurbain</span>
+          <span className="badge">{t("gateway.badge")}</span>
           <h1 className="display display-2xl">
-            Bienvenue sur <span className="title-accent">VELTRON</span>.
+            {t("gateway.title1")} <span className="title-accent">VELTRON</span>.
             <br />
-            Choisissez votre espace dédié.
+            {t("gateway.title2")}
           </h1>
           <p className="lead">
-            Deux univers totalement indépendants et sécurisés : l’un conçu pour le confort des voyageurs,
-            l’autre pensé pour la performance opérationnelle des compagnies de transport.
+            {t("gateway.lead")}
           </p>
         </motion.div>
 
@@ -62,20 +64,16 @@ export default function Gateway() {
               <div className="VisualCard__bg" />
               <div className="VisualCard__shade" />
               <div className="VisualCard__content">
-                <span className="VisualCard__tag">Espace Voyageur</span>
-                <h2 className="display display-xl">Je suis Passager</h2>
-                <p>
-                  Réservation de billets avec QR code, location et achat de bus, suivi GPS/vitesse en temps réel avec calcul
-                  d’arrivée selon le trafic, et programme de fidélité annuel.
-                </p>
+                <span className="VisualCard__tag">{t("gateway.passenger.tag")}</span>
+                <h2 className="display display-xl">{t("gateway.passenger.title")}</h2>
+                <p>{t("gateway.passenger.desc")}</p>
                 <ul className="VisualCard__pills">
-                  <li>Réservation</li>
-                  <li>Location & Achat</li>
-                  <li>Suivi Live km/h</li>
-                  <li>Points Fidélité</li>
+                  {((t("gateway.passenger.pills", { returnObjects: true }) as string[]) || []).map((pill, idx) => (
+                    <li key={idx}>{pill}</li>
+                  ))}
                 </ul>
                 <span className="VisualCard__cta">
-                  Entrer dans l’espace Passager <span aria-hidden="true">→</span>
+                  {t("gateway.passenger.cta")} <span aria-hidden="true">→</span>
                 </span>
               </div>
             </Link>
@@ -94,20 +92,16 @@ export default function Gateway() {
               <div className="VisualCard__bg" />
               <div className="VisualCard__shade" />
               <div className="VisualCard__content">
-                <span className="VisualCard__tag">Espace Compagnie & Équipes</span>
-                <h2 className="display display-xl">Je suis une Agence</h2>
-                <p>
-                  Créez votre agence vérifiée par IA ou connectez votre équipe avec code PIN sécurisé : 6 comptes cloisonnés,
-                  programmation des départs, guichet et messagerie chiffrée de bout en bout.
-                </p>
+                <span className="VisualCard__tag">{t("gateway.agency.tag")}</span>
+                <h2 className="display display-xl">{t("gateway.agency.title")}</h2>
+                <p>{t("gateway.agency.desc")}</p>
                 <ul className="VisualCard__pills">
-                  <li>Créer mon agence</li>
-                  <li>J’ai une agence (ID + PIN)</li>
-                  <li>6 Comptes isolés</li>
-                  <li>Chat E2EE</li>
+                  {((t("gateway.agency.pills", { returnObjects: true }) as string[]) || []).map((pill, idx) => (
+                    <li key={idx}>{pill}</li>
+                  ))}
                 </ul>
                 <span className="VisualCard__cta">
-                  Entrer dans l’espace Agence <span aria-hidden="true">→</span>
+                  {t("gateway.agency.cta")} <span aria-hidden="true">→</span>
                 </span>
               </div>
             </Link>
@@ -118,7 +112,7 @@ export default function Gateway() {
       <footer className="gateway__footer container">
         <AuthorBadge compact />
         <Link to="/supervision" className="gateway__owner-link">
-          Supervision Propriétaire VELTRON
+          {t("gateway.supervision")}
         </Link>
       </footer>
     </div>

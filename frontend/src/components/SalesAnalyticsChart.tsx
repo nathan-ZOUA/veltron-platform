@@ -55,7 +55,7 @@ export default function SalesAnalyticsChart({
             Diagramme des Ventes & Recettes
           </h2>
           <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
-            Visualisez les encaissements, la part nette agence (99,5 %) et les billets émis sur la période choisie.
+            Visualisez les encaissements, la recette nette agence et les billets émis sur la période choisie.
           </p>
         </div>
 
@@ -88,7 +88,7 @@ export default function SalesAnalyticsChart({
             </strong>
           </div>
           <div className="card kpi-card kpi-card--accent" style={{ padding: "var(--space-3)" }}>
-            <span className="muted" style={{ fontSize: "var(--text-xs)" }}>Recette nette agence (99,5 %)</span>
+            <span className="muted" style={{ fontSize: "var(--text-xs)" }}>Recette nette agence</span>
             <strong className="mono" style={{ fontSize: "var(--text-xl)" }}>
               {money(analytics.summary.total_net)}
             </strong>
@@ -100,7 +100,7 @@ export default function SalesAnalyticsChart({
             </strong>
           </div>
           <div className="card kpi-card" style={{ padding: "var(--space-3)" }}>
-            <span className="muted" style={{ fontSize: "var(--text-xs)" }}>Commission VELTRON (0,5 %)</span>
+            <span className="muted" style={{ fontSize: "var(--text-xs)" }}>Frais de service plateforme</span>
             <strong className="mono" style={{ fontSize: "var(--text-xl)" }}>
               {money(analytics.summary.total_commission)}
             </strong>
@@ -220,10 +220,10 @@ export default function SalesAnalyticsChart({
                     Brut : <strong className="mono">{money(hovered.gross)}</strong>
                   </span>
                   <span>
-                    Net Agence (99,5 %) : <strong className="mono" style={{ color: "#10b981" }}>{money(hovered.net)}</strong>
+                    Net Agence : <strong className="mono" style={{ color: "#10b981" }}>{money(hovered.net)}</strong>
                   </span>
                   <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                    VELTRON (0,5 %) : {money(hovered.commission)}
+                    Frais VELTRON : {money(hovered.commission)}
                   </span>
                 </div>
               </div>

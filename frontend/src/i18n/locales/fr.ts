@@ -23,6 +23,9 @@ export const fr = {
     admin: "Admin",
     partner: "Devenir partenaire",
     logout: "Déconnexion",
+    rental: "Location bus",
+    sales: "Achat bus",
+    loyalty: "Fidélité",
   },
 
   common: {
@@ -321,6 +324,27 @@ export const fr = {
     approve: "Valider",
     suspend: "Suspendre",
     statuses: { pending: "En attente", active: "Active", suspended: "Suspendue" },
+  },
+  gateway: {
+    badge: "Plateforme internationale de transport interurbain",
+    title1: "Bienvenue sur",
+    title2: "Choisissez votre espace dédié.",
+    lead: "Deux univers totalement indépendants et sécurisés : l’un conçu pour le confort des voyageurs, l’autre pensé pour la performance opérationnelle des compagnies de transport.",
+    passenger: {
+      tag: "Espace Voyageur",
+      title: "Je suis Passager",
+      desc: "Réservation de billets avec QR code, location et achat de bus, suivi GPS/vitesse en temps réel avec calcul d’arrivée selon le trafic, et programme de fidélité annuel.",
+      pills: ["Réservation", "Location & Achat", "Suivi Live km/h", "Points Fidélité"],
+      cta: "Entrer dans l’espace Passager",
+    },
+    agency: {
+      tag: "Espace Compagnie & Équipes",
+      title: "Je suis une Agence",
+      desc: "Créez votre agence vérifiée par IA ou connectez votre équipe avec code PIN sécurisé : 6 comptes cloisonnés, programmation des départs, guichet et messagerie chiffrée de bout en bout.",
+      pills: ["Créer mon agence", "J’ai une agence (ID + PIN)", "6 Comptes isolés", "Chat E2EE"],
+      cta: "Entrer dans l’espace Agence",
+    },
+    supervision: "Supervision Propriétaire VELTRON",
   },
   footer: {
     rights: "Tous droits réservés.",

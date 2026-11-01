@@ -565,7 +565,7 @@ route('GET', '/api/agency/fleet-live', function () {
     $s = require_agency(['owner', 'manager', 'secretary', 'accountant', 'staff']);
     $trips = all("SELECT t.id, t.status, t.departs_at, t.arrives_at, t.delay_minutes,
                          t.current_lat, t.current_lng, t.current_speed_kmh, t.current_progress_pct, t.last_gps_at,
-                         r.origin, r.destination, r.distance_km,
+                         oc.name AS origin, dc.name AS destination, r.distance_km,
                          b.label AS bus_label, b.plate, b.seat_count, b.has_gps,
                          (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.status IN ('valid','boarded')) AS booked_seats,
                          (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.status = 'boarded') AS boarded_seats,
@@ -573,6 +573,8 @@ route('GET', '/api/agency/fleet-live', function () {
                          (SELECT u.phone FROM trip_drivers td JOIN drivers d ON d.id = td.driver_id JOIN users u ON u.id = d.user_id WHERE td.trip_id = t.id LIMIT 1) AS driver_phone
                   FROM trips t
                   JOIN routes r ON r.id = t.route_id
+                  JOIN cities oc ON oc.id = r.origin_city_id
+                  JOIN cities dc ON dc.id = r.dest_city_id
                   JOIN buses b ON b.id = t.bus_id
                   WHERE t.agency_id = ? AND t.status IN ('scheduled', 'boarding', 'departed')
                   ORDER BY t.departs_at ASC", [$s['agency_id']]);

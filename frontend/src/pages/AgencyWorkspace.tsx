@@ -463,6 +463,18 @@ export default function AgencyWorkspace() {
     loadTabContent();
   }, [loadTabContent]);
 
+  useEffect(() => {
+    if (routes.length > 0 && (!tripForm.route_id || !routes.some((r) => r.id === tripForm.route_id))) {
+      setTripForm((f) => ({ ...f, route_id: routes[0].id }));
+    }
+  }, [routes]);
+
+  useEffect(() => {
+    if (buses.length > 0 && (!tripForm.bus_id || !buses.some((b) => b.id === tripForm.bus_id))) {
+      setTripForm((f) => ({ ...f, bus_id: buses[0].id }));
+    }
+  }, [buses]);
+
   if (!agencySession) return null;
 
   // --- Actions ---
@@ -470,16 +482,32 @@ export default function AgencyWorkspace() {
     e.preventDefault();
     setNotice("");
     setError("");
+    const effectiveRouteId = tripForm.route_id || routes[0]?.id;
+    const effectiveBusId = tripForm.bus_id || buses[0]?.id;
+    if (!effectiveRouteId) {
+      setError("Veuillez d'abord configurer ou sélectionner une ligne de transport.");
+      return;
+    }
+    if (!effectiveBusId) {
+      setError("Veuillez d'abord ajouter ou sélectionner un bus disponible.");
+      return;
+    }
+    if (!tripForm.departs_local) {
+      setError("Veuillez sélectionner la date et l'heure de départ.");
+      return;
+    }
     try {
       await api("/agency/trips", {
         body: {
           ...tripForm,
+          route_id: effectiveRouteId,
+          bus_id: effectiveBusId,
           driver_id: tripForm.driver_id || null,
           vip_price: tripForm.vip_price ? Number(tripForm.vip_price) : null,
         },
         realm: "agency",
       });
-      setNotice("✓ Nouveau voyage programmé et ouvert à la réservation !");
+      setNotice("✓ Nouveau voyage programmé avec succès et ouvert à la réservation !");
       loadTabContent();
     } catch (err) {
       handleErr(err);
@@ -993,9 +1021,10 @@ export default function AgencyWorkspace() {
                 <span className="field__label">Ligne</span>
                 <select
                   className="select"
-                  value={tripForm.route_id}
+                  value={tripForm.route_id || (routes[0]?.id ?? 0)}
                   onChange={(e) => setTripForm({ ...tripForm, route_id: Number(e.target.value) })}
                 >
+                  {routes.length === 0 && <option value={0}>— Aucune ligne configurée —</option>}
                   {routes.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.origin} → {r.destination} ({r.distance_km} km)
@@ -1008,9 +1037,10 @@ export default function AgencyWorkspace() {
                 <span className="field__label">Bus alloué</span>
                 <select
                   className="select"
-                  value={tripForm.bus_id}
+                  value={tripForm.bus_id || (buses[0]?.id ?? 0)}
                   onChange={(e) => setTripForm({ ...tripForm, bus_id: Number(e.target.value) })}
                 >
+                  {buses.length === 0 && <option value={0}>— Aucun bus disponible —</option>}
                   {buses.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.label} ({b.plate} · {b.seat_count} pl.)
@@ -1070,7 +1100,7 @@ export default function AgencyWorkspace() {
                 </label>
               </div>
 
-              <button type="submit" className="btn" disabled={!tripForm.route_id || !tripForm.bus_id}>
+              <button type="submit" className="btn">
                 Publier ce départ
               </button>
             </form>
@@ -2021,7 +2051,7 @@ export default function AgencyWorkspace() {
               </span>
             </div>
             <div className="card kpi-card kpi-card--accent">
-              <span className="muted">Solde reçu sur le compte de l’agence (99,5 %)</span>
+              <span className="muted">Solde reçu sur le compte de l’agence (Revenu net)</span>
               <strong className="display kpi-card__value mono">{money(finance.wallet_balance ?? finance.net)}</strong>
               <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
                 Compte : {finance.payout_settings?.payout_account_number || "À configurer ci-dessous"}
@@ -2034,7 +2064,7 @@ export default function AgencyWorkspace() {
               💳 Compte de réception des paiements de l’agence (crédit direct automatique)
             </h3>
             <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
-              Lorsqu’un passager paie son billet en ligne, l’argent est <strong>déduit directement de son compte</strong> et <strong>99,5 % part directement sur ce compte enregistré de l’agence</strong> (0,5 % commission VELTRON).
+              Lorsqu’un passager paie son billet en ligne, l’argent est <strong>déduit directement de son compte</strong> et le montant net est <strong>versé directement sur ce compte enregistré de l’agence</strong>.
             </p>
             <div className="search-grid">
               <label className="field">

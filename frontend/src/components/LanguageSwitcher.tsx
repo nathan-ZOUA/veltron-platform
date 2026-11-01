@@ -27,7 +27,8 @@ export default function LanguageSwitcher() {
     };
   }, []);
 
-  const current = LANGUAGES.find((l) => l.code === i18n.language) ?? LANGUAGES[0];
+  const langCode = (i18n.language || "fr").split("-")[0].toLowerCase();
+  const current = LANGUAGES.find((l) => l.code === langCode) ?? LANGUAGES[0];
 
   return (
     <div className="lang" ref={containerRef}>
@@ -51,6 +52,7 @@ export default function LanguageSwitcher() {
           <motion.ul
             className="lang__menu"
             role="menu"
+            style={{ zIndex: 99999 }}
             initial={{ opacity: 0, y: -8, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
@@ -61,7 +63,7 @@ export default function LanguageSwitcher() {
                 <button
                   type="button"
                   role="menuitemradio"
-                  aria-checked={language.code === i18n.language}
+                  aria-checked={language.code === langCode}
                   className="lang__option"
                   onClick={() => {
                     i18n.changeLanguage(language.code);

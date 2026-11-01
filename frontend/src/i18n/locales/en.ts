@@ -17,6 +17,9 @@ export const en: Translation = {
     admin: "Admin",
     partner: "Become a partner",
     logout: "Sign out",
+    rental: "Bus rental",
+    sales: "Bus sales",
+    loyalty: "Loyalty",
   },
 
   common: {
@@ -315,6 +318,27 @@ export const en: Translation = {
     approve: "Approve",
     suspend: "Suspend",
     statuses: { pending: "Pending", active: "Active", suspended: "Suspended" },
+  },
+  gateway: {
+    badge: "International intercity transport platform",
+    title1: "Welcome to",
+    title2: "Choose your dedicated space.",
+    lead: "Two completely independent and secure environments: one designed for traveler convenience, the other built for transport companies' operational performance.",
+    passenger: {
+      tag: "Traveler Space",
+      title: "I am a Passenger",
+      desc: "QR code ticket booking, bus rental & sales, real-time GPS/speed tracking with traffic-based arrival estimates, and annual loyalty program.",
+      pills: ["Booking", "Rental & Sales", "Live km/h Tracking", "Loyalty Points"],
+      cta: "Enter Passenger space",
+    },
+    agency: {
+      tag: "Company & Staff Space",
+      title: "I am an Agency",
+      desc: "Create your AI-verified agency or connect your team with a secure PIN: 6 isolated roles, departure scheduling, desk ticketing and end-to-end encrypted messaging.",
+      pills: ["Register my agency", "I have an agency (ID + PIN)", "6 Isolated roles", "E2EE Chat"],
+      cta: "Enter Agency space",
+    },
+    supervision: "VELTRON Owner Supervision",
   },
   footer: {
     rights: "All rights reserved.",
