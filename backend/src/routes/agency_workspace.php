@@ -584,11 +584,175 @@ route('GET', '/api/agency/fleet-live', function () {
         $tr['boarded_seats'] = (int) $tr['boarded_seats'];
         $tr['seat_count'] = (int) $tr['seat_count'];
         $tr['is_full'] = $tr['booked_seats'] >= $tr['seat_count'];
+        $tr['current_lat'] = $tr['current_lat'] !== null ? (float) $tr['current_lat'] : null;
+        $tr['current_lng'] = $tr['current_lng'] !== null ? (float) $tr['current_lng'] : null;
+        $tr['current_speed_kmh'] = $tr['current_speed_kmh'] !== null ? (int) $tr['current_speed_kmh'] : null;
+        $tr['current_progress_pct'] = $tr['current_progress_pct'] !== null ? (int) $tr['current_progress_pct'] : null;
+        $tr['delay_minutes'] = (int) ($tr['delay_minutes'] ?? 0);
         $tr['departs_at'] = iso($tr['departs_at']);
         $tr['arrives_at'] = iso($tr['arrives_at']);
         $tr['last_gps_at'] = iso($tr['last_gps_at']);
     }
     json_out($trips);
+});
+
+// Réconciliation et contrôle financier par voyage pour le comptable & l'administrateur
+route('GET', '/api/agency/finance/daily-reconciliation', function () {
+    $s = require_agency(['owner', 'accountant']);
+    $date = trim((string) ($_GET['date'] ?? gmdate('Y-m-d')));
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) $date = gmdate('Y-m-d');
+
+    $ag = one("SELECT currency_code FROM agencies WHERE id = ?", [$s['agency_id']]);
+
+    $trips = all("SELECT t.id, t.status, t.departs_at, t.arrives_at, t.price, t.vip_price,
+                         oc.name AS origin, dc.name AS destination,
+                         b.label AS bus_label, b.plate, b.seat_count,
+                         (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.status IN ('valid','boarded','completed')) AS passengers_count,
+                         (SELECT COALESCE(SUM(k.price), 0) FROM tickets k WHERE k.trip_id = t.id AND k.status IN ('valid','boarded','completed')) AS expected_amount,
+                         (SELECT COALESCE(SUM(p.amount), 0) FROM payments p JOIN bookings bk ON bk.id = p.booking_id WHERE bk.trip_id = t.id AND p.status = 'succeeded') AS collected_amount,
+                         (SELECT COALESCE(SUM(p.amount), 0) FROM payments p JOIN bookings bk ON bk.id = p.booking_id WHERE bk.trip_id = t.id AND p.status = 'succeeded' AND p.provider = 'cash') AS cash_amount,
+                         (SELECT COALESCE(SUM(p.amount), 0) FROM payments p JOIN bookings bk ON bk.id = p.booking_id WHERE bk.trip_id = t.id AND p.status = 'succeeded' AND p.provider IN ('orange_money','mtn_momo','wave')) AS momo_amount,
+                         (SELECT COALESCE(SUM(p.amount), 0) FROM payments p JOIN bookings bk ON bk.id = p.booking_id WHERE bk.trip_id = t.id AND p.status = 'succeeded' AND p.provider = 'card') AS card_amount
+                  FROM trips t
+                  JOIN routes r ON r.id = t.route_id
+                  JOIN cities oc ON oc.id = r.origin_city_id
+                  JOIN cities dc ON dc.id = r.dest_city_id
+                  JOIN buses b ON b.id = t.bus_id
+                  WHERE t.agency_id = ? AND DATE(t.departs_at) = ?
+                  ORDER BY t.departs_at ASC", [$s['agency_id'], $date]);
+
+    $totalExpected = 0;
+    $totalCollected = 0;
+    $totalDiscrepancies = 0;
+
+    foreach ($trips as &$tr) {
+        $tr['passengers_count'] = (int) $tr['passengers_count'];
+        $tr['seat_count'] = (int) $tr['seat_count'];
+        $tr['price'] = (int) $tr['price'];
+        $tr['expected_amount'] = (int) $tr['expected_amount'];
+        $tr['collected_amount'] = (int) $tr['collected_amount'];
+        $tr['cash_amount'] = (int) $tr['cash_amount'];
+        $tr['momo_amount'] = (int) $tr['momo_amount'];
+        $tr['card_amount'] = (int) $tr['card_amount'];
+        $tr['is_full'] = $tr['passengers_count'] >= $tr['seat_count'];
+
+        // Détection d'incohérence : si le montant encaissé est inférieur au montant attendu
+        $tr['has_discrepancy'] = $tr['collected_amount'] < $tr['expected_amount'];
+        $tr['discrepancy_amount'] = max(0, $tr['expected_amount'] - $tr['collected_amount']);
+        $tr['departs_at'] = iso($tr['departs_at']);
+
+        $totalExpected += $tr['expected_amount'];
+        $totalCollected += $tr['collected_amount'];
+        if ($tr['has_discrepancy']) $totalDiscrepancies++;
+    }
+
+    json_out([
+        'date' => $date,
+        'currency_code' => $ag['currency_code'] ?? 'XAF',
+        'summary' => [
+            'total_trips' => count($trips),
+            'total_expected' => $totalExpected,
+            'total_collected' => $totalCollected,
+            'net_difference' => $totalExpected - $totalCollected,
+            'discrepant_trips_count' => $totalDiscrepancies,
+        ],
+        'trips' => $trips,
+    ]);
+});
+
+// Détail des passagers et paiements d'un voyage pour le comptable
+route('GET', '/api/agency/finance/trips/{id}/details', function (array $p) {
+    $s = require_agency(['owner', 'accountant']);
+    $tripId = (int) $p['id'];
+
+    $trip = one("SELECT t.id, t.status, t.departs_at, t.price, t.vip_price,
+                        oc.name AS origin, dc.name AS destination,
+                        b.label AS bus_label, b.plate, b.seat_count
+                 FROM trips t
+                 JOIN routes r ON r.id = t.route_id
+                 JOIN cities oc ON oc.id = r.origin_city_id
+                 JOIN cities dc ON dc.id = r.dest_city_id
+                 JOIN buses b ON b.id = t.bus_id
+                 WHERE t.id = ? AND t.agency_id = ?", [$tripId, $s['agency_id']])
+        ?? fail(404, 'not_found', 'Voyage introuvable.');
+
+    $tickets = all("SELECT k.id, k.passenger_name, k.phone, k.id_number, k.status, k.price,
+                           st.seat_no, st.seat_class,
+                           p.provider, p.amount AS paid_amount, p.status AS payment_status, p.created_at AS paid_at,
+                           b.reference
+                    FROM tickets k
+                    JOIN seats st ON st.id = k.seat_id
+                    JOIN bookings b ON b.id = k.booking_id
+                    LEFT JOIN payments p ON p.booking_id = b.id AND p.status = 'succeeded'
+                    WHERE k.trip_id = ? AND k.status IN ('valid','boarded','completed')
+                    ORDER BY st.seat_no ASC", [$tripId]);
+
+    foreach ($tickets as &$tk) {
+        $tk['seat_no'] = (int) $tk['seat_no'];
+        $tk['price'] = (int) $tk['price'];
+        $tk['paid_amount'] = (int) ($tk['paid_amount'] ?? 0);
+        $tk['paid_at'] = $tk['paid_at'] ? iso($tk['paid_at']) : null;
+        $tk['provider'] = $tk['provider'] ?? 'unpaid';
+    }
+
+    $trip['departs_at'] = iso($trip['departs_at']);
+    json_out(['trip' => $trip, 'tickets' => $tickets]);
+});
+
+// Signaler une anomalie financière dans la causerie d'équipe (Comptable)
+route('POST', '/api/agency/finance/trips/{id}/report-discrepancy', function (array $p) {
+    $s = require_agency(['owner', 'accountant']);
+    $tripId = (int) $p['id'];
+    $in = input();
+    $note = trim((string) ($in['note'] ?? 'Incohérence entre passagers enregistrés et recettes encaissées'));
+
+    $trip = one("SELECT t.id, t.departs_at, t.price, oc.name AS origin, dc.name AS destination, b.plate,
+                        (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.status IN ('valid','boarded','completed')) AS pax,
+                        (SELECT COALESCE(SUM(k.price), 0) FROM tickets k WHERE k.trip_id = t.id AND k.status IN ('valid','boarded','completed')) AS expected,
+                        (SELECT COALESCE(SUM(p.amount), 0) FROM payments p JOIN bookings bk ON bk.id = p.booking_id WHERE bk.trip_id = t.id AND p.status = 'succeeded') AS collected
+                 FROM trips t
+                 JOIN routes r ON r.id = t.route_id
+                 JOIN cities oc ON oc.id = r.origin_city_id
+                 JOIN cities dc ON dc.id = r.dest_city_id
+                 JOIN buses b ON b.id = t.bus_id
+                 WHERE t.id = ? AND t.agency_id = ?", [$tripId, $s['agency_id']])
+        ?? fail(404, 'not_found', 'Voyage introuvable.');
+
+    $diff = (int)$trip['expected'] - (int)$trip['collected'];
+    $alertText = sprintf(
+        "🚨 [ALERTE COMPTABILITÉ] Incohérence financière détectée sur le départ %s → %s (Bus %s) : %d passagers à bord. Attendu : %d FCFA | Encaissé : %d FCFA (Écart non justifié : -%d FCFA). Motif : %s",
+        $trip['origin'], $trip['destination'], $trip['plate'],
+        (int)$trip['pax'], (int)$trip['expected'], (int)$trip['collected'], $diff, $note
+    );
+
+    // Envoyer dans le salon général d'équipe
+    $gen = one("SELECT id FROM chat_groups WHERE agency_id = ? AND kind = 'general' LIMIT 1", [$s['agency_id']]);
+    if ($gen) {
+        q("INSERT INTO chat_messages (group_id, sender_user_id, kind, ciphertext) VALUES (?, ?, 'system', ?)",
+            [$gen['id'], $s['id'], $alertText]);
+    }
+
+    audit((int)$s['id'], $s['agency_id'], 'finance.discrepancy_reported', 'trip', $tripId, [
+        'expected' => $trip['expected'],
+        'collected' => $trip['collected'],
+        'gap' => $diff,
+    ]);
+
+    json_out(['ok' => true, 'message' => "L'alerte d'incohérence financière a été transmise à l'administrateur et publiée dans la discussion d'équipe."]);
+});
+
+// Suppression / réinitialisation de l'historique GPS d'un ancien trajet (Chauffeur)
+route('POST', '/api/agency/driver/trips/{id}/clear-history', function (array $p) {
+    $s = require_agency(['driver', 'owner']);
+    $tripId = (int) $p['id'];
+
+    q("UPDATE trips SET current_lat = NULL, current_lng = NULL, current_speed_kmh = NULL, current_progress_pct = 0, last_gps_at = NULL WHERE id = ? AND agency_id = ?",
+        [$tripId, $s['agency_id']]);
+    q("DELETE FROM trip_status_updates WHERE trip_id = ? AND kind IN ('departed','position','delay')", [$tripId]);
+
+    audit((int)$s['id'], $s['agency_id'], 'driver.gps_history_cleared', 'trip', $tripId);
+
+    json_out(['ok' => true, 'message' => "Historique GPS du trajet réinitialisé à zéro avec succès."]);
 });
 
 // Mise à jour de la photo de profil (WhatsApp style) pour n'importe quel membre du personnel

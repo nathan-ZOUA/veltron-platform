@@ -36,7 +36,7 @@ interface Colleague {
 interface ChatMessageItem {
   id: number;
   sender_user_id: number;
-  kind: "text" | "system";
+  kind: "text" | "system" | "module_request";
   ciphertext: string;
   text?: string;
   created_at: string;
@@ -190,6 +190,25 @@ export default function AgencyChat() {
     }
   }
 
+  const [respondingId, setRespondingId] = useState<number | null>(null);
+
+  async function handleModuleDecision(messageId: number, decision: "approve" | "reject") {
+    if (!activeGroup) return;
+    setRespondingId(messageId);
+    setError("");
+    try {
+      await api(`/agency/chat/module-request/${messageId}/respond`, {
+        body: { decision },
+        realm: "agency",
+      });
+      await loadRoom(activeGroup);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Erreur lors du traitement de la demande.");
+    } finally {
+      setRespondingId(null);
+    }
+  }
+
   async function createCustomGroup(e: FormEvent) {
     e.preventDefault();
     setError("");
@@ -311,6 +330,11 @@ export default function AgencyChat() {
 
               {messages.map((m) => {
                 const bodyText = m.text ?? m.ciphertext;
+                const timeStr = new Date(m.created_at).toLocaleTimeString("fr-FR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                });
+
                 if (m.kind === "system") {
                   return (
                     <div key={m.id} className="chat-system-pill">
@@ -319,14 +343,146 @@ export default function AgencyChat() {
                   );
                 }
 
+                if (m.kind === "module_request") {
+                  let reqPayload: any = null;
+                  try {
+                    reqPayload = JSON.parse(m.ciphertext);
+                  } catch {
+                    reqPayload = null;
+                  }
+                  if (!reqPayload) return null;
+
+                  const isOwner = agencySession.role === "owner";
+                  const status = reqPayload.status || "pending";
+
+                  const MODULE_NAMES: Record<string, { label: string; icon: string }> = {
+                    desk: { label: "Guichet (Vente & Billetterie)", icon: "🎫" },
+                    boarding: { label: "Appel Passagers (Embarquement)", icon: "📋" },
+                    fleet: { label: "Flotte & Lignes", icon: "🚌" },
+                    tracking: { label: "Flotte & GPS en Direct", icon: "🗺️" },
+                    rentals: { label: "Location de Bus", icon: "🤝" },
+                    sales: { label: "Bourse & Vente Bus", icon: "🛒" },
+                    analytics: { label: "Diagramme des Ventes", icon: "📊" },
+                    cash_journal: { label: "Comptabilité & Caisse", icon: "💼" },
+                    settings: { label: "Sécurité & Audit", icon: "⚙️" },
+                    trips: { label: "Programmation des voyages", icon: "🗓️" },
+                  };
+
+                  return (
+                    <div
+                      key={m.id}
+                      className="chat-module-request-card"
+                      style={{
+                        margin: "12px auto",
+                        maxWidth: 520,
+                        width: "100%",
+                        background: "var(--surface)",
+                        border: `2px solid ${status === "approved" ? "#22c55e" : status === "rejected" ? "#ef4444" : "var(--accent)"}`,
+                        borderRadius: 14,
+                        padding: "14px 16px",
+                        boxShadow: "0 4px 14px rgba(0,0,0,0.08)",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 22 }}>📋</span>
+                          <div>
+                            <strong style={{ fontSize: "var(--text-sm)", display: "block" }}>
+                              Demande d'Évolution de Tableau de Bord
+                            </strong>
+                            <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
+                              {reqPayload.applicant_name} ({ROLE_NAMES[reqPayload.applicant_role] ?? reqPayload.applicant_role})
+                              {reqPayload.applicant_matricule ? ` · Matricule : ${reqPayload.applicant_matricule}` : ""}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="mono muted" style={{ fontSize: 11 }}>{timeStr}</span>
+                      </div>
+
+                      <div style={{ margin: "10px 0" }}>
+                        <div style={{ fontSize: "var(--text-xs)", fontWeight: 600, marginBottom: 6, color: "var(--muted)" }}>
+                          Modules sollicités par l'employé :
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {(reqPayload.modules || []).map((modKey: string) => {
+                            const meta = MODULE_NAMES[modKey] || { label: modKey, icon: "📦" };
+                            return (
+                              <span
+                                key={modKey}
+                                className="badge"
+                                style={{
+                                  background: "rgba(140, 107, 184, 0.15)",
+                                  color: "var(--accent)",
+                                  fontSize: "var(--text-xs)",
+                                  padding: "4px 8px",
+                                  borderRadius: 6,
+                                }}
+                              >
+                                {meta.icon} {meta.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {status === "pending" && (
+                        <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                          {isOwner ? (
+                            <div>
+                              <div style={{ fontSize: "var(--text-xs)", marginBottom: 8, color: "var(--text)" }}>
+                                ⚡ <strong>Action Administrateur requise :</strong> Validez-vous l'ajout de ces modules au poste de cet agent ?
+                              </div>
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <button
+                                  type="button"
+                                  className="btn btn--primary"
+                                  style={{ background: "#22c55e", borderColor: "#22c55e", padding: "6px 14px", fontSize: "var(--text-xs)" }}
+                                  disabled={respondingId === m.id}
+                                  onClick={() => handleModuleDecision(m.id, "approve")}
+                                >
+                                  {respondingId === m.id ? "Validation..." : "✅ Oui / Valider"}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn--ghost"
+                                  style={{ color: "#ef4444", borderColor: "#ef4444", padding: "6px 14px", fontSize: "var(--text-xs)" }}
+                                  disabled={respondingId === m.id}
+                                  onClick={() => handleModuleDecision(m.id, "reject")}
+                                >
+                                  {respondingId === m.id ? "Refus..." : "❌ Non / Décliner"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--text-xs)", color: "var(--muted)" }}>
+                              <span>⏳</span>
+                              <em>En attente de validation par l'Administrateur de l'agence.</em>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {status === "approved" && (
+                        <div style={{ marginTop: 10, background: "rgba(34, 197, 94, 0.1)", color: "#15803d", padding: "8px 12px", borderRadius: 8, fontSize: "var(--text-xs)", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>✅</span>
+                          <strong>Validé par l'administrateur {reqPayload.decided_by_name ? `(${reqPayload.decided_by_name})` : ""}. Modules activés sans perte de données.</strong>
+                        </div>
+                      )}
+
+                      {status === "rejected" && (
+                        <div style={{ marginTop: 10, background: "rgba(239, 68, 68, 0.1)", color: "#b91c1c", padding: "8px 12px", borderRadius: 8, fontSize: "var(--text-xs)", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>❌</span>
+                          <strong>Demande refusée par l'administrateur {reqPayload.decided_by_name ? `(${reqPayload.decided_by_name})` : ""}.</strong>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 const mine = m.sender_user_id === agencySession.user.id;
                 const seenByOthers = reads.some(
                   (r) => r.user_id !== agencySession.user.id && Number(r.last_read_id) >= m.id,
                 );
-                const timeStr = new Date(m.created_at).toLocaleTimeString("fr-FR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                });
 
                 return (
                   <motion.div

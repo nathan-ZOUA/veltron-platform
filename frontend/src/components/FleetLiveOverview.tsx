@@ -127,7 +127,7 @@ export default function FleetLiveOverview({ fleet, onRefresh, timezone, language
                   {hasGps ? (
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "var(--text-xs)" }}>
                       <span className="mono" style={{ color: "#34d399" }}>
-                        📍 ({tr.current_lat?.toFixed(4)}, {tr.current_lng?.toFixed(4)})
+                        📍 ({Number(tr.current_lat).toFixed(4)}, {Number(tr.current_lng).toFixed(4)})
                       </span>
                       <a
                         href={`https://www.google.com/maps/search/?api=1&query=${tr.current_lat},${tr.current_lng}`}

@@ -36,8 +36,8 @@ route('GET', '/api/desk/trips', function () {
                   JOIN cities oc ON oc.id = r.origin_city_id
                   JOIN cities dc ON dc.id = r.dest_city_id
                   JOIN buses b ON b.id = t.bus_id
-                  WHERE t.agency_id = ? AND t.status NOT IN ('cancelled','completed')
-                    AND t.departs_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 6 HOUR)
+                  WHERE t.agency_id = ? AND t.status <> 'completed'
+                    AND t.departs_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)
                   ORDER BY t.departs_at LIMIT 60", [$s['agency_id']]);
     foreach ($trips as &$t) {
         $t['departs_at'] = iso($t['departs_at']);

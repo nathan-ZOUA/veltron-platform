@@ -34,17 +34,17 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { id: "overview", label: "📊 Vue d’ensemble", roles: ["owner", "manager"] },
-  { id: "boarding", label: "📋 Appel des Passagers (Embarquement)", roles: ["owner", "manager", "staff"] },
-  { id: "desk", label: "🎫 Guichet (Vente & Billetterie)", roles: ["owner", "manager", "secretary"] },
-  { id: "fleet_live", label: "🗺️ Flotte & GPS en Direct", roles: ["owner", "manager", "secretary", "accountant", "staff"] },
-  { id: "trips", label: "🗓️ Voyages & Reports", roles: ["owner", "manager", "secretary"] },
-  { id: "driver", label: "🚌 Espace Chauffeur", roles: ["driver", "owner", "manager"] },
-  { id: "analytics", label: "📈 Diagramme des Ventes", roles: ["owner", "manager", "secretary", "accountant"] },
-  { id: "fleet", label: "⚙️ Flotte & Lignes", roles: ["owner", "manager"] },
-  { id: "commercial", label: "🤝 Location & Vente Bus", roles: ["owner", "manager", "secretary", "accountant"] },
-  { id: "staff", label: "👥 Comptes & Postes Équipe", roles: ["owner", "manager"] },
+  { id: "overview", label: "📊 Vue d’ensemble", roles: ["owner"] },
+  { id: "fleet_live", label: "🗺️ Flotte & GPS en Direct", roles: ["owner"] },
+  { id: "trips", label: "🗓️ Voyages & Reports", roles: ["owner", "manager"] },
+  { id: "analytics", label: "📈 Diagramme des Ventes", roles: ["owner", "secretary", "accountant"] },
+  { id: "fleet", label: "⚙️ Flotte & Lignes", roles: ["owner"] },
+  { id: "commercial", label: "🤝 Location & Vente Bus", roles: ["owner"] },
+  { id: "staff", label: "👥 Comptes & Postes Équipe", roles: ["owner"] },
   { id: "finance", label: "💳 Comptabilité", roles: ["owner", "accountant"] },
+  { id: "desk", label: "🎫 Guichet (Vente & Billetterie)", roles: ["secretary"] },
+  { id: "boarding", label: "📋 Appel des Passagers (Embarquement)", roles: ["staff"] },
+  { id: "driver", label: "🚌 Espace Chauffeur", roles: ["driver"] },
   { id: "chat", label: "💬 Discussion d’Équipe", roles: ["owner", "manager", "secretary", "driver", "staff", "accountant"] },
   { id: "settings", label: "🛡️ Sécurité, Règles & Audit", roles: ["owner"] },
 ];
@@ -99,9 +99,21 @@ export default function AgencyWorkspace() {
 
   const allowedTabs = useMemo(() => {
     return TABS.filter((t) => {
-      if (!t.roles.includes(role)) return false;
-      if (t.id === "chat" || t.id === "overview") return true;
+      if (t.id === "chat") return true;
+
+      const isDefaultRoleTab = t.roles.includes(role);
+
       if (userDashboardModules && userDashboardModules.length > 0) {
+        if (t.id === "boarding" && userDashboardModules.includes("boarding")) return true;
+        if (t.id === "desk" && userDashboardModules.includes("desk")) return true;
+        if (t.id === "fleet_live" && userDashboardModules.includes("tracking")) return true;
+        if (t.id === "fleet" && userDashboardModules.includes("fleet")) return true;
+        if (t.id === "analytics" && userDashboardModules.includes("analytics")) return true;
+        if (t.id === "commercial" && (userDashboardModules.includes("rentals") || userDashboardModules.includes("sales"))) return true;
+        if (t.id === "finance" && (userDashboardModules.includes("cash_journal") || userDashboardModules.includes("sales"))) return true;
+        if (t.id === "settings" && userDashboardModules.includes("settings")) return true;
+        if (t.id === "trips" && userDashboardModules.includes("trips")) return true;
+
         if (t.id === "boarding" && !userDashboardModules.includes("boarding")) return false;
         if (t.id === "desk" && !userDashboardModules.includes("desk")) return false;
         if (t.id === "fleet_live" && !userDashboardModules.includes("tracking")) return false;
@@ -110,15 +122,19 @@ export default function AgencyWorkspace() {
         if (t.id === "commercial" && !userDashboardModules.includes("rentals") && !userDashboardModules.includes("sales")) return false;
         if (t.id === "finance" && !userDashboardModules.includes("cash_journal") && !userDashboardModules.includes("sales")) return false;
         if (t.id === "settings" && !userDashboardModules.includes("settings")) return false;
+        if (t.id === "trips" && !userDashboardModules.includes("trips")) return false;
       }
-      return true;
+
+      return isDefaultRoleTab;
     });
   }, [role, userDashboardModules]);
+
   const [tab, setTab] = useState<TabId>(() => {
     if (role === "secretary") return "desk";
     if (role === "staff") return "boarding";
     if (role === "driver") return "driver";
     if (role === "accountant") return "finance";
+    if (role === "manager") return "trips";
     return "overview";
   });
 
@@ -298,6 +314,62 @@ export default function AgencyWorkspace() {
   const [dashboardModulesModal, setDashboardModulesModal] = useState(false);
   const [delegateModal, setDelegateModal] = useState<{ userId: number; name: string; matricule?: string | null } | null>(null);
   const [selectedDelegateTo, setSelectedDelegateTo] = useState<number>(0);
+
+  // Contrôle financier & Réconciliation quotidienne pour le Comptable & Administrateur
+  const [reconciliationDate, setReconciliationDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reconciliationData, setReconciliationData] = useState<{
+    date: string;
+    currency_code: string;
+    summary: {
+      total_trips: number;
+      total_expected: number;
+      total_collected: number;
+      net_difference: number;
+      discrepant_trips_count: number;
+    };
+    trips: Array<{
+      id: number;
+      status: string;
+      departs_at: string;
+      arrives_at: string | null;
+      price: number;
+      vip_price: number | null;
+      origin: string;
+      destination: string;
+      bus_label: string;
+      plate: string;
+      seat_count: number;
+      passengers_count: number;
+      expected_amount: number;
+      collected_amount: number;
+      cash_amount: number;
+      momo_amount: number;
+      card_amount: number;
+      is_full: boolean;
+      has_discrepancy: boolean;
+      discrepancy_amount: number;
+    }>;
+  } | null>(null);
+  const [inspectFinanceTripModal, setInspectFinanceTripModal] = useState<{
+    trip: any;
+    tickets: Array<{
+      id: number;
+      passenger_name: string;
+      phone: string | null;
+      id_number: string | null;
+      status: string;
+      price: number;
+      seat_no: number;
+      seat_class: string;
+      provider: string;
+      paid_amount: number;
+      payment_status: string | null;
+      paid_at: string | null;
+      reference: string;
+    }>;
+  } | null>(null);
+  const [reportingTripId, setReportingTripId] = useState<number | null>(null);
+  const [loadingReconciliation, setLoadingReconciliation] = useState(false);
 
   // Analytics des ventes
   const [salesPeriod, setSalesPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("weekly");
@@ -497,8 +569,12 @@ export default function AgencyWorkspace() {
           setMarket(m);
         }
       } else if (tab === "finance") {
-        const f = await api<NonNullable<typeof finance>>("/agency/finance", { realm: "agency" });
+        const [f, rec] = await Promise.all([
+          api<NonNullable<typeof finance>>("/agency/finance", { realm: "agency" }),
+          api<NonNullable<typeof reconciliationData>>(`/agency/finance/daily-reconciliation?date=${reconciliationDate}`, { realm: "agency" }).catch(() => null),
+        ]);
         setFinance(f);
+        if (rec) setReconciliationData(rec);
         if (f.payout_settings) {
           setPayoutForm({
             payout_method: f.payout_settings.payout_method || "orange_money",
@@ -761,13 +837,24 @@ export default function AgencyWorkspace() {
     setNotice("");
     setError("");
     try {
-      const res = await api<{ ok: boolean; modules: string[] }>("/agency/me/dashboard-modules", {
-        body: { modules: userDashboardModules },
-        realm: "agency",
-      });
-      setUserDashboardModules(res.modules);
-      setDashboardModulesModal(false);
-      setNotice("✓ Votre tableau de bord a été réadapté avec succès selon vos cercles choisis (zéro perte de données).");
+      if (role === "owner") {
+        const res = await api<{ ok: boolean; modules: string[] }>("/agency/me/dashboard-modules", {
+          body: { modules: userDashboardModules },
+          realm: "agency",
+        });
+        setUserDashboardModules(res.modules);
+        setDashboardModulesModal(false);
+        setNotice("✓ Votre tableau de bord administrateur a été réadapté avec succès selon vos cercles choisis (zéro perte de données).");
+        await refreshAgency();
+      } else {
+        // Envoi de la demande d'évolution à l'administrateur dans la discussion d'équipe
+        await api<{ ok: boolean }>("/agency/chat/request-modules", {
+          body: { modules: userDashboardModules },
+          realm: "agency",
+        });
+        setDashboardModulesModal(false);
+        setNotice("✓ Votre demande d'évolution de tableau de bord a été envoyée dans la Discussion d'Équipe. L'administrateur a été notifié pour valider vos nouveaux modules.");
+      }
     } catch (err) {
       handleErr(err);
     }
@@ -835,6 +922,58 @@ export default function AgencyWorkspace() {
       await api("/agency/bus-listings", { body: listingForm, realm: "agency" });
       setNotice("✓ Annonce de vente publiée dans l’espace Achat de Bus !");
       setListingForm({ ...listingForm, title: "", brand: "", model: "", description: "" });
+      loadTabContent();
+    } catch (err) {
+      handleErr(err);
+    }
+  }
+
+  async function loadReconciliation(selectedDate: string) {
+    setLoadingReconciliation(true);
+    try {
+      const res = await api<NonNullable<typeof reconciliationData>>(`/agency/finance/daily-reconciliation?date=${selectedDate}`, { realm: "agency" });
+      setReconciliationData(res);
+    } catch (err) {
+      handleErr(err);
+    } finally {
+      setLoadingReconciliation(false);
+    }
+  }
+
+  async function openFinanceTripDetails(tripId: number) {
+    try {
+      const res = await api<{ trip: any; tickets: any[] }>(`/agency/finance/trips/${tripId}/details`, { realm: "agency" });
+      setInspectFinanceTripModal(res);
+    } catch (err) {
+      handleErr(err);
+    }
+  }
+
+  async function handleReportDiscrepancy(tripId: number) {
+    const note = prompt(
+      "Précisez une note pour l'alerte d'anomalie financière transmise à l'administrateur et dans la discussion d'équipe :",
+      "Incohérence détectée entre passagers inscrits et recettes réelles"
+    );
+    if (!note) return;
+    try {
+      setReportingTripId(tripId);
+      const res = await api<{ ok: boolean; message: string }>(`/agency/finance/trips/${tripId}/report-discrepancy`, {
+        body: { note },
+        realm: "agency",
+      });
+      setNotice(`✓ ${res.message}`);
+    } catch (err) {
+      handleErr(err);
+    } finally {
+      setReportingTripId(null);
+    }
+  }
+
+  async function handleClearGpsHistory(tripId: number) {
+    if (!confirm("Voulez-vous réinitialiser à zéro l'historique GPS de ce trajet ?")) return;
+    try {
+      await api(`/agency/driver/trips/${tripId}/clear-history`, { realm: "agency" });
+      setNotice("✓ Historique GPS réinitialisé à zéro pour ce voyage.");
       loadTabContent();
     } catch (err) {
       handleErr(err);
@@ -1595,6 +1734,19 @@ export default function AgencyWorkspace() {
                             ))}
                           </div>
                         )}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, flexWrap: "wrap", gap: 6, borderTop: "1px dashed var(--border)", paddingTop: 6 }}>
+                          <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
+                            {tr.updates?.length || 0} coordonnée(s) GPS enregistrée(s)
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn--sm btn--ghost"
+                            style={{ color: "#ef4444", borderColor: "rgba(239, 68, 68, 0.4)", fontSize: "var(--text-xs)", padding: "3px 8px" }}
+                            onClick={() => handleClearGpsHistory(tr.id)}
+                          >
+                            🔄 Réinitialiser à zéro l'historique GPS
+                          </button>
+                        </div>
                       </li>
                     ))}
                 </ul>
@@ -2423,6 +2575,166 @@ export default function AgencyWorkspace() {
             </div>
           )}
 
+          {/* CONTRÔLE ET RÉCONCILIATION FINANCIÈRE QUOTIDIENNE (Comptable & Administrateur) */}
+          <div className="card form-grid" style={{ border: "2px solid var(--accent)", padding: "var(--space-4)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)" }}>
+                  💼 Contrôle Financier & Réconciliation par Voyage
+                </span>
+                <h3 className="subheading" style={{ margin: "4px 0 2px" }}>
+                  Contrôle des Recettes, Espèces & Détection Automatique des Écarts
+                </h3>
+                <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                  Contrôle systématique entre le montant total attendu (passagers inscrits × prix du billet) et les recettes effectivement encaissées (Espèces guichet, Mobile Money et Cartes).
+                </p>
+              </div>
+
+              {/* Sélecteur de date */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <label style={{ fontSize: "var(--text-xs)", fontWeight: 600 }}>Date :</label>
+                <input
+                  type="date"
+                  className="input"
+                  style={{ width: "auto" }}
+                  value={reconciliationDate}
+                  onChange={(e) => {
+                    const newD = e.target.value;
+                    setReconciliationDate(newD);
+                    loadReconciliation(newD);
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => loadReconciliation(reconciliationDate)}
+                  disabled={loadingReconciliation}
+                >
+                  {loadingReconciliation ? "Chargement..." : "🔄 Actualiser"}
+                </button>
+              </div>
+            </div>
+
+            {/* KPIs de la journée choisie */}
+            {reconciliationData && (
+              <>
+                <div className="kpi-grid" style={{ margin: "8px 0" }}>
+                  <div className="card kpi-card">
+                    <span className="muted">Départs programmés</span>
+                    <strong className="display kpi-card__value mono">{reconciliationData.summary.total_trips}</strong>
+                  </div>
+                  <div className="card kpi-card">
+                    <span className="muted">Recettes Attendues (Inscrits)</span>
+                    <strong className="display kpi-card__value mono">{money(reconciliationData.summary.total_expected)}</strong>
+                  </div>
+                  <div className="card kpi-card">
+                    <span className="muted">Recettes Encaissées (Reçues)</span>
+                    <strong className="display kpi-card__value mono">{money(reconciliationData.summary.total_collected)}</strong>
+                  </div>
+                  <div className={`card kpi-card ${reconciliationData.summary.discrepant_trips_count > 0 ? "kpi-card--danger" : "kpi-card--accent"}`}>
+                    <span className="muted">Contrôle de Cohérence</span>
+                    <strong className="display kpi-card__value mono" style={{ color: reconciliationData.summary.discrepant_trips_count > 0 ? "#ef4444" : "#10b981" }}>
+                      {reconciliationData.summary.discrepant_trips_count > 0 ? `⚠️ ${reconciliationData.summary.discrepant_trips_count} anomalie(s)` : "✓ Tout est conforme"}
+                    </strong>
+                    {reconciliationData.summary.discrepant_trips_count > 0 && (
+                      <span className="muted" style={{ fontSize: "var(--text-xs)", color: "#ef4444" }}>
+                        Écart total : -{money(reconciliationData.summary.net_difference)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Table des voyages de la journée */}
+                {reconciliationData.trips.length === 0 ? (
+                  <p className="muted" style={{ textAlign: "center", padding: "16px 0" }}>
+                    Aucun départ programmé pour la journée du {reconciliationDate}.
+                  </p>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="table" style={{ width: "100%", fontSize: "var(--text-xs)" }}>
+                      <thead>
+                        <tr>
+                          <th>Voyage & Ligne</th>
+                          <th>Bus / Immat</th>
+                          <th>Passagers</th>
+                          <th>Attendu (Inscrits)</th>
+                          <th>Encaissé Réel</th>
+                          <th>Modes (Espèces / MoMo)</th>
+                          <th>Contrôle Financier</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reconciliationData.trips.map((tr) => (
+                          <tr key={tr.id} style={{ background: tr.has_discrepancy ? "rgba(239, 68, 68, 0.06)" : "transparent" }}>
+                            <td>
+                              <strong>{tr.origin} → {tr.destination}</strong>
+                              <div className="muted mono">{formatTime(tr.departs_at, "UTC", i18n.language)}</div>
+                            </td>
+                            <td>
+                              <strong>{tr.bus_label}</strong>
+                              <div className="muted mono">{tr.plate}</div>
+                            </td>
+                            <td>
+                              <span className="badge mono">
+                                {tr.passengers_count} / {tr.seat_count} pl.
+                              </span>
+                              {tr.is_full && <span className="badge" style={{ background: "#10b981", color: "#fff", marginLeft: 4 }}>Plein</span>}
+                            </td>
+                            <td className="mono" style={{ fontWeight: 600 }}>
+                              {money(tr.expected_amount)}
+                            </td>
+                            <td className="mono" style={{ fontWeight: 700, color: tr.has_discrepancy ? "#ef4444" : "#10b981" }}>
+                              {money(tr.collected_amount)}
+                            </td>
+                            <td style={{ fontSize: 11 }}>
+                              <div>💵 Espèces : <strong className="mono">{money(tr.cash_amount)}</strong></div>
+                              <div>📱 MoMo : <strong className="mono">{money(tr.momo_amount)}</strong></div>
+                              {tr.card_amount > 0 && <div>💳 Carte : <strong className="mono">{money(tr.card_amount)}</strong></div>}
+                            </td>
+                            <td>
+                              {tr.has_discrepancy ? (
+                                <div style={{ background: "rgba(239, 68, 68, 0.15)", color: "#b91c1c", padding: "6px 8px", borderRadius: 6, fontWeight: 700 }}>
+                                  ⚠️ Incohérence financière détectée : Écart de -{money(tr.discrepancy_amount)}
+                                </div>
+                              ) : (
+                                <span className="badge" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#059669" }}>
+                                  ✓ Conforme
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                <button
+                                  type="button"
+                                  className="btn btn--sm btn--ghost"
+                                  onClick={() => openFinanceTripDetails(tr.id)}
+                                >
+                                  🔍 Détails
+                                </button>
+                                {tr.has_discrepancy && (
+                                  <button
+                                    type="button"
+                                    className="btn btn--sm"
+                                    style={{ background: "#ef4444", borderColor: "#ef4444", color: "#fff" }}
+                                    disabled={reportingTripId === tr.id}
+                                    onClick={() => handleReportDiscrepancy(tr.id)}
+                                  >
+                                    {reportingTripId === tr.id ? "Envoi..." : "🚨 Signaler anomalie"}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
           <div className="agency-layout">
             <div className="card form-grid">
               <h3 className="subheading" style={{ margin: 0 }}>Derniers paiements</h3>
@@ -2737,12 +3049,18 @@ export default function AgencyWorkspace() {
               })}
             </div>
 
+            {role !== "owner" && (
+              <div style={{ background: "rgba(140, 107, 184, 0.08)", padding: "8px 12px", borderRadius: 8, fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginBottom: 8 }}>
+                💬 <strong>Processus de validation d'équipe :</strong> Votre demande d'ajout ou de modification de modules sera automatiquement soumise sous forme de fiche interactive dans la Discussion d'Équipe. L'administrateur pourra la valider d'un simple clic.
+              </div>
+            )}
+
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button type="button" className="btn btn--ghost" onClick={() => setDashboardModulesModal(false)}>
                 Annuler
               </button>
               <button type="button" className="btn btn--primary" onClick={handleSaveDashboardModules} style={{ background: "var(--accent)" }}>
-                ✓ Enregistrer & Réadapter mon tableau de bord
+                {role === "owner" ? "✓ Enregistrer & Réadapter mon tableau de bord" : "📤 Soumettre à l'Administrateur (Discussion d'équipe)"}
               </button>
             </div>
           </div>
@@ -2969,6 +3287,108 @@ export default function AgencyWorkspace() {
                 disabled={!selectedDelegateTo}
               >
                 Confirmer la délégation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL 5 : DÉTAIL FINANCIER D'UN VOYAGE (Comptable & Admin) */}
+      {inspectFinanceTripModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.65)",
+            backdropFilter: "blur(4px)",
+            display: "grid",
+            placeItems: "center",
+            zIndex: 10000,
+            padding: 16,
+          }}
+          onClick={() => setInspectFinanceTripModal(null)}
+        >
+          <div
+            className="card form-grid"
+            style={{ maxWidth: 750, width: "100%", background: "var(--surface)", maxHeight: "90vh", overflowY: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)" }}>
+                  💳 Bilan Financier Détaillé
+                </span>
+                <h3 className="subheading" style={{ margin: "4px 0 2px" }}>
+                  {inspectFinanceTripModal.trip.origin} → {inspectFinanceTripModal.trip.destination}
+                </h3>
+                <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                  Bus {inspectFinanceTripModal.trip.bus_label} ({inspectFinanceTripModal.trip.plate}) · Départ le{" "}
+                  {formatDay(inspectFinanceTripModal.trip.departs_at, "UTC", i18n.language)} à{" "}
+                  {formatTime(inspectFinanceTripModal.trip.departs_at, "UTC", i18n.language)}
+                </p>
+              </div>
+              <button type="button" className="btn btn--ghost" onClick={() => setInspectFinanceTripModal(null)} style={{ fontSize: 18 }}>
+                ✕
+              </button>
+            </div>
+
+            <div style={{ overflowX: "auto" }}>
+              <table className="table" style={{ width: "100%", fontSize: "var(--text-xs)" }}>
+                <thead>
+                  <tr>
+                    <th>Siège</th>
+                    <th>Passager</th>
+                    <th>Téléphone / CNI</th>
+                    <th>Réf. Billet</th>
+                    <th>Prix</th>
+                    <th>Moyen Paiement</th>
+                    <th>Encaissé</th>
+                    <th>Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inspectFinanceTripModal.tickets.map((tk) => (
+                    <tr key={tk.id}>
+                      <td className="mono">
+                        <strong>#{tk.seat_no}</strong> ({tk.seat_class})
+                      </td>
+                      <td>
+                        <strong>{tk.passenger_name}</strong>
+                      </td>
+                      <td className="muted mono" style={{ fontSize: 11 }}>
+                        {tk.phone || "—"} {tk.id_number ? `· CNI: ${tk.id_number}` : ""}
+                      </td>
+                      <td className="mono">{tk.reference}</td>
+                      <td className="mono">{money(tk.price)}</td>
+                      <td>
+                        <span className="badge">
+                          {tk.provider === "cash"
+                            ? "💵 Espèces (Guichet)"
+                            : tk.provider === "orange_money"
+                            ? "🍊 Orange Money"
+                            : tk.provider === "mtn_momo"
+                            ? "💛 MTN MoMo"
+                            : tk.provider === "card"
+                            ? "💳 Carte"
+                            : tk.provider}
+                        </span>
+                      </td>
+                      <td className="mono" style={{ fontWeight: 700, color: tk.paid_amount >= tk.price ? "#10b981" : "#ef4444" }}>
+                        {money(tk.paid_amount)}
+                      </td>
+                      <td>
+                        <span className="badge">{tk.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn--primary" onClick={() => setInspectFinanceTripModal(null)}>
+                Fermer
               </button>
             </div>
           </div>

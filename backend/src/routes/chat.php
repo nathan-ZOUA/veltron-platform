@@ -263,3 +263,91 @@ route('POST', '/api/agency/chat/groups/{id}/messages', function (array $p) {
     json_out(['id' => $msgId, 'text' => $text], 201);
 });
 
+// Demande d'évolution de tableau de bord envoyée dans la discussion d'équipe
+route('POST', '/api/agency/chat/request-modules', function () {
+    $s = require_agency();
+    $in = input();
+    $modules = $in['modules'] ?? [];
+    if (!is_array($modules) || count($modules) === 0) fail(422, 'invalid_modules', 'Sélectionnez au moins un module.');
+
+    $allowed = ['desk', 'boarding', 'fleet', 'tracking', 'rentals', 'sales', 'analytics', 'settings', 'cash_journal'];
+    $filtered = array_values(array_intersect($allowed, $modules));
+
+    // Récupérer le groupe général de l'agence
+    $gen = one("SELECT id FROM chat_groups WHERE agency_id = ? AND kind = 'general' LIMIT 1", [$s['agency_id']]);
+    if (!$gen) {
+        q("INSERT INTO chat_groups (agency_id, name, description, kind, theme, created_by)
+           VALUES (?, 'Équipe Générale', 'Canal interne de toute l''agence', 'general', 'aurora', ?)",
+            [$s['agency_id'], $s['id']]);
+        $gid = (int) db()->lastInsertId();
+    } else {
+        $gid = (int) $gen['id'];
+    }
+
+    $payload = [
+        'applicant_id' => $s['id'],
+        'applicant_name' => trim($s['first_name'] . ' ' . $s['last_name']),
+        'applicant_role' => $s['role'],
+        'modules' => $filtered,
+        'status' => 'pending',
+        'decided_by' => null,
+        'decided_by_name' => null,
+        'created_at' => gmdate('Y-m-d H:i:s'),
+    ];
+
+    q("INSERT INTO chat_messages (group_id, sender_user_id, kind, key_version, iv, ciphertext)
+       VALUES (?, ?, 'module_request', NULL, NULL, ?)", [$gid, $s['id'], json_encode($payload)]);
+    $msgId = (int) db()->lastInsertId();
+
+    q('UPDATE chat_members SET last_read_id = GREATEST(last_read_id, ?) WHERE group_id = ? AND user_id = ?',
+        [$msgId, $gid, $s['id']]);
+
+    audit((int) $s['id'], $s['agency_id'], 'staff.dashboard_module_request', 'user', $s['id'], ['modules' => $filtered]);
+
+    json_out(['ok' => true, 'message_id' => $msgId, 'payload' => $payload], 201);
+});
+
+// Répondre à une demande d'évolution de tableau de bord (Administrateur uniquement)
+route('POST', '/api/agency/chat/module-request/{id}/respond', function (array $p) {
+    $s = require_agency(['owner']);
+    $msgId = (int) $p['id'];
+    $in = input();
+    $decision = (string) ($in['decision'] ?? ''); // 'approve' ou 'reject'
+
+    $msg = one("SELECT m.*, g.agency_id FROM chat_messages m
+                JOIN chat_groups g ON g.id = m.group_id
+                WHERE m.id = ? AND g.agency_id = ? AND m.kind = 'module_request'",
+        [$msgId, $s['agency_id']]) ?? fail(404, 'not_found', 'Demande introuvable.');
+
+    $payload = json_decode($msg['ciphertext'], true);
+    if (!is_array($payload)) fail(422, 'invalid_payload', 'Données de la demande corrompues.');
+
+    if ($decision === 'approve') {
+        $payload['status'] = 'approved';
+        $payload['decided_by'] = $s['id'];
+        $payload['decided_by_name'] = trim($s['first_name'] . ' ' . $s['last_name']);
+        $payload['decided_at'] = gmdate('Y-m-d H:i:s');
+
+        // Mettre à jour les modules réels de l'agent dans agency_staff
+        q("UPDATE agency_staff SET dashboard_modules = ? WHERE agency_id = ? AND user_id = ?",
+            [json_encode($payload['modules']), $s['agency_id'], (int) $payload['applicant_id']]);
+
+        audit((int) $s['id'], $s['agency_id'], 'staff.dashboard_module_approved', 'user', (int) $payload['applicant_id'], [
+            'modules' => $payload['modules']
+        ]);
+    } elseif ($decision === 'reject') {
+        $payload['status'] = 'rejected';
+        $payload['decided_by'] = $s['id'];
+        $payload['decided_by_name'] = trim($s['first_name'] . ' ' . $s['last_name']);
+        $payload['decided_at'] = gmdate('Y-m-d H:i:s');
+
+        audit((int) $s['id'], $s['agency_id'], 'staff.dashboard_module_rejected', 'user', (int) $payload['applicant_id']);
+    } else {
+        fail(422, 'invalid_decision', 'Décision invalide (approve ou reject).');
+    }
+
+    q("UPDATE chat_messages SET ciphertext = ? WHERE id = ?", [json_encode($payload), $msgId]);
+
+    json_out(['ok' => true, 'status' => $payload['status'], 'payload' => $payload]);
+});
+

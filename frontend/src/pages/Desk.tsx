@@ -19,6 +19,7 @@ const STATUS_BADGES: Record<string, string> = {
   boarding: "Embarquement en cours",
   departed: "En route",
   completed: "Arrivé",
+  cancelled: "❌ Déprogrammé / Annulé",
 };
 
 // Module Guichet / Secrétaire (intégré à l'Espace Agence) :
@@ -72,6 +73,10 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   } | null>(null);
   const [showJournal, setShowJournal] = useState(false);
 
+  const isSecretary = agencySession?.role === "secretary";
+  const canManageTripStatus = agencySession && ["owner", "manager"].includes(agencySession.role);
+  const canManageBoardingStatus =
+    agencySession && ["owner", "manager", "staff"].includes(agencySession.role) && !isSecretary;
   const canManage =
     agencySession && ["owner", "manager", "secretary"].includes(agencySession.role);
 
@@ -313,7 +318,7 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                   </span>
                 </div>
 
-                {canManage && (
+                {canManageTripStatus && (
                   <div className="chips">
                     <button
                       type="button"
@@ -365,42 +370,54 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
               </p>
             )}
 
-            {/* Carte d'appel prioritaire */}
-            <motion.div
-              className="card call-card"
-              key={nextToCall?.id ?? "done"}
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-            >
-              <span className="muted">Appel au micro / Porte d’embarquement</span>
-              {nextToCall ? (
-                <>
-                  <strong className="call-card__ref mono">{nextToCall.reference}</strong>
-                  <span className="call-card__name">
-                    {nextToCall.passenger_name} · Siège #{nextToCall.seat_no}
-                  </span>
-                  <div className="call-card__actions">
-                    <button type="button" className="btn" onClick={() => act(nextToCall.id, "board")}>
-                      ✓ Présent & Embarqué
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost"
-                      onClick={() => act(nextToCall.id, "late", "Signalé en retard — arrive sous peu")}
-                    >
-                      ⏱ Client en retard
-                    </button>
-                    {canManage && (
-                      <button type="button" className="btn btn--ghost" onClick={() => act(nextToCall.id, "absent")}>
-                        ✕ Déclarer absent (libère le siège)
+            {/* Carte d'appel prioritaire (Personnel d'embarquement / Quai uniquement, masqué pour la Secrétaire) */}
+            {!isSecretary && (
+              <motion.div
+                className="card call-card"
+                key={nextToCall?.id ?? "done"}
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+              >
+                <span className="muted">Appel au micro / Porte d’embarquement</span>
+                {nextToCall ? (
+                  <>
+                    <strong className="call-card__ref mono">{nextToCall.reference}</strong>
+                    <span className="call-card__name">
+                      {nextToCall.passenger_name} · Siège #{nextToCall.seat_no}
+                    </span>
+                    <div className="call-card__actions">
+                      <button type="button" className="btn" onClick={() => act(nextToCall.id, "board")}>
+                        ✓ Présent & Embarqué
                       </button>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <strong>Tous les passagers attendus ont été traités ({freeSeatsList.length} siège(s) libre(s)).</strong>
-              )}
-            </motion.div>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => act(nextToCall.id, "late", "Signalé en retard — arrive sous peu")}
+                      >
+                        ⏱ Client en retard
+                      </button>
+                      {canManage && (
+                        <button type="button" className="btn btn--ghost" onClick={() => act(nextToCall.id, "absent")}>
+                          ✕ Déclarer absent (libère le siège)
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <strong>Tous les passagers attendus ont été traités ({freeSeatsList.length} siège(s) libre(s)).</strong>
+                )}
+              </motion.div>
+            )}
+
+            {/* Alerte pour la secrétaire si passagers absents au quai */}
+            {isSecretary && manifest.tickets.some((k) => k.status === "no_show") && (
+              <div className="card" style={{ background: "rgba(239, 68, 68, 0.12)", border: "1px solid #ef4444", padding: "12px 16px" }}>
+                <strong style={{ color: "#ef4444" }}>📢 Alerte Quai Embarquement :</strong>
+                <p style={{ margin: "4px 0 0", fontSize: "var(--text-sm)" }}>
+                  {manifest.tickets.filter((k) => k.status === "no_show").length} passager(s) ont été déclarés absents par l'équipe de quai. Leurs places sont redevenues libres pour une vente directe au guichet !
+                </p>
+              </div>
+            )}
 
             {/* Indicateur Bus Plein (100% complet) */}
             {manifest.seats.length > 0 && freeSeatsList.length === 0 && !manifest.tickets.some((k) => k.status === "no_show") && (
@@ -424,10 +441,10 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                     🟢 BUS PLEIN (100 % COMPLET)
                   </span>
                   <h3 style={{ margin: "6px 0 0", color: "#10b981" }}>
-                    Toutes les places sont occupées ! Le bus est prêt pour le départ.
+                    Toutes les places sont occupées ! Le bus est plein.
                   </h3>
                 </div>
-                {canManage && manifest.status !== "departed" && manifest.status !== "completed" && (
+                {canManageTripStatus && manifest.status !== "departed" && manifest.status !== "completed" && (
                   <button
                     type="button"
                     className="btn btn--lg"
@@ -523,7 +540,7 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                           </div>
 
                           <div className="chips" style={{ marginTop: 4 }}>
-                            {tObj.status === "valid" && (
+                            {canManageBoardingStatus && tObj.status === "valid" && (
                               <>
                                 <button
                                   type="button"
@@ -551,7 +568,7 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                               </>
                             )}
 
-                            {tObj.status === "boarded" && (
+                            {canManageBoardingStatus && tObj.status === "boarded" && (
                               <button type="button" className="btn btn--sm btn--ghost" onClick={() => act(tObj.id, "undo")}>
                                 ↩ Annuler statut à bord
                               </button>
@@ -559,19 +576,23 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
 
                             {tObj.status === "no_show" && (
                               <>
-                                <button type="button" className="btn btn--sm" onClick={openFill}>
-                                  🔄 Remplacer par un client sans bagage d’un autre bus
-                                </button>
+                                {canManageBoardingStatus && (
+                                  <button type="button" className="btn btn--sm" onClick={openFill}>
+                                    🔄 Remplacer par un client sans bagage d’un autre bus
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   className="btn btn--sm btn--ghost"
                                   onClick={() => setWalkIn((cur) => ({ ...cur, seat_id: sObj!.id }))}
                                 >
-                                  💵 Vente directe guichet sur ce siège
+                                  💵 Vente directe guichet sur ce siège libéré
                                 </button>
-                                <button type="button" className="btn btn--sm btn--ghost" onClick={() => act(tObj.id, "undo")}>
-                                  ↩ Réintégrer passager initial
-                                </button>
+                                {canManageBoardingStatus && (
+                                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => act(tObj.id, "undo")}>
+                                    ↩ Réintégrer passager initial
+                                  </button>
+                                )}
                               </>
                             )}
                           </div>
@@ -629,48 +650,61 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                       </span>
 
                       <div className="call-row__actions">
-                        {k.status === "valid" && (
+                        {canManageBoardingStatus ? (
                           <>
-                            <button type="button" className="chip" onClick={() => act(k.id, "checkin")}>
-                              Pointé
-                            </button>
-                            <button type="button" className="chip is-active" onClick={() => act(k.id, "board")}>
-                              Embarquer
-                            </button>
-                            {canManage && (
-                              <button type="button" className="chip" onClick={() => act(k.id, "absent")}>
-                                Absent
+                            {k.status === "valid" && (
+                              <>
+                                <button type="button" className="chip" onClick={() => act(k.id, "checkin")}>
+                                  Pointé
+                                </button>
+                                <button type="button" className="chip is-active" onClick={() => act(k.id, "board")}>
+                                  Embarquer
+                                </button>
+                                <button type="button" className="chip" onClick={() => act(k.id, "absent")}>
+                                  Absent
+                                </button>
+                                <input
+                                  className="input input--sm"
+                                  placeholder="Note retard"
+                                  value={lateNotes[k.id] ?? ""}
+                                  onChange={(e) => setLateNotes({ ...lateNotes, [k.id]: e.target.value })}
+                                />
+                                <button
+                                  type="button"
+                                  className="chip"
+                                  onClick={() => act(k.id, "late", lateNotes[k.id] || "En route (signalé au guichet)")}
+                                >
+                                  ⏱ Retard
+                                </button>
+                                <input
+                                  className="input input--sm"
+                                  inputMode="decimal"
+                                  placeholder="Bagage kg"
+                                  value={weights[k.id] ?? ""}
+                                  onChange={(e) => setWeights({ ...weights, [k.id]: e.target.value })}
+                                />
+                                <button type="button" className="chip" disabled={!weights[k.id]} onClick={() => addLuggage(k.id)}>
+                                  + Bagage
+                                </button>
+                              </>
+                            )}
+                            {(k.status === "boarded" || k.status === "no_show") && (
+                              <button type="button" className="chip" onClick={() => act(k.id, "undo")}>
+                                Annuler statut
                               </button>
                             )}
-                            <input
-                              className="input input--sm"
-                              placeholder="Note retard"
-                              value={lateNotes[k.id] ?? ""}
-                              onChange={(e) => setLateNotes({ ...lateNotes, [k.id]: e.target.value })}
-                            />
-                            <button
-                              type="button"
-                              className="chip"
-                              onClick={() => act(k.id, "late", lateNotes[k.id] || "En route (signalé au guichet)")}
-                            >
-                              ⏱ Retard
-                            </button>
-                            <input
-                              className="input input--sm"
-                              inputMode="decimal"
-                              placeholder="Bagage kg"
-                              value={weights[k.id] ?? ""}
-                              onChange={(e) => setWeights({ ...weights, [k.id]: e.target.value })}
-                            />
-                            <button type="button" className="chip" disabled={!weights[k.id]} onClick={() => addLuggage(k.id)}>
-                              + Bagage
-                            </button>
                           </>
-                        )}
-                        {(k.status === "boarded" || k.status === "no_show") && canManage && (
-                          <button type="button" className="chip" onClick={() => act(k.id, "undo")}>
-                            Annuler statut
-                          </button>
+                        ) : (
+                          <span
+                            className="badge"
+                            style={{
+                              background: k.status === "boarded" ? "rgba(16, 185, 129, 0.15)" : k.status === "no_show" ? "rgba(239, 68, 68, 0.15)" : "rgba(59, 130, 246, 0.15)",
+                              color: k.status === "boarded" ? "#059669" : k.status === "no_show" ? "#dc2626" : "#2563eb",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {k.status === "boarded" ? "🟢 À bord" : k.status === "no_show" ? "🔴 Absent (Quai)" : "🔵 Payé / Réservé"}
+                          </span>
                         )}
                       </div>
                     </li>

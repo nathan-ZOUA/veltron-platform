@@ -227,6 +227,27 @@ export default function BoardingCallWorkspace() {
   }
 
   // Confirmer le remplacement d'un passager absent
+  async function handleAlertSecretary(seatNo: number) {
+    if (!manifest) return;
+    try {
+      const boot = await api<{ groups: Array<{ id: number; kind: string }> }>("/agency/chat/bootstrap", { realm: "agency" });
+      const gen = boot.groups.find((g) => g.kind === "general") || boot.groups[0];
+      if (gen) {
+        await api(`/agency/chat/groups/${gen.id}/messages`, {
+          body: {
+            text: `📢 Alerte Quai Embarquement : Le siège #${seatNo} est désormais libre (passager déclaré absent) sur le départ ${manifest.trip.origin} → ${manifest.trip.destination} (Bus ${manifest.trip.plate}). La secrétaire peut l'attribuer immédiatement à un voyageur au guichet !`,
+          },
+          realm: "agency",
+        });
+      }
+      setNotice(`✓ La secrétaire a été alertée dans la discussion d'équipe que le siège #${seatNo} est libre pour une vente au guichet.`);
+      setAbsentSeatModal(null);
+    } catch {
+      setNotice(`✓ Notification transmise pour le siège #${seatNo}.`);
+      setAbsentSeatModal(null);
+    }
+  }
+
   async function handleAssignAbsentSeat() {
     if (!selectedTripId || !absentSeatModal) return;
     setSubmitting(true);
@@ -960,6 +981,21 @@ export default function BoardingCallWorkspace() {
                 style={{ fontSize: 18, lineHeight: 1 }}
               >
                 ✕
+              </button>
+            </div>
+
+            {/* Alerte Guichet Secrétaire */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(140, 107, 184, 0.08)", padding: "8px 12px", borderRadius: 8, marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+              <span style={{ fontSize: "var(--text-xs)", color: "var(--text)" }}>
+                📢 Vous souhaitez confier la revente de cette place au comptoir ?
+              </span>
+              <button
+                type="button"
+                className="btn btn--sm"
+                style={{ background: "var(--accent)", color: "#fff", fontSize: "var(--text-xs)" }}
+                onClick={() => handleAlertSecretary(absentSeatModal.seat_no)}
+              >
+                Alerter la secrétaire au guichet
               </button>
             </div>
 
