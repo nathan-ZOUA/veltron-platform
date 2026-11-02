@@ -1086,7 +1086,7 @@ export default function AgencyWorkspace() {
   }, []);
 
   return (
-    <div className="container page">
+    <div className={`container page ${tab === "desk" ? "container--desk-wide" : ""}`}>
       {/* En-tête de session isolée */}
       <div className="workspace-banner card">
         <div style={{ display: "flex", gap: "var(--space-4)", alignItems: "center", flexWrap: "wrap" }}>

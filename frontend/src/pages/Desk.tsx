@@ -1,32 +1,33 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
-import SeatGrid from "../components/SeatGrid";
 import { api, ApiError } from "../core/api";
 import { useAuth } from "../core/auth";
 import { formatDay, formatMoney, formatTime } from "../core/format";
-import type { DeskTrip, FillCandidate, Manifest } from "../core/types";
-
-interface FillData {
-  fill_window_minutes: number;
-  free_seats: { id: number; seat_no: number; seat_class: string }[];
-  candidates: FillCandidate[];
-}
+import type { DeskTrip, Manifest } from "../core/types";
 
 const STATUS_BADGES: Record<string, string> = {
   scheduled: "Programmé",
-  boarding: "Embarquement en cours",
+  boarding: "Embarquement",
   departed: "En route",
   completed: "Arrivé",
-  cancelled: "❌ Déprogrammé / Annulé",
+  cancelled: "❌ Déprogrammé",
 };
 
-// Module Guichet / Secrétaire (intégré à l'Espace Agence) :
-// - Départs & arrivées, scan QR, appel passagers, retardataires, absents (no_show), bagages
-// - Vente directe guichet (ajout d'un client de dernière minute sur siège libre)
-// - Remplissage des places libérées par des passagers SANS bagage d'un départ proche
-//   (uniquement si écart <= fill_window_minutes, ex. 40 min max, et après accord physique)
+interface IssuedTicketReceipt {
+  reference: string;
+  seat_no: number;
+  passenger_name: string;
+  amount: number;
+  currency_code: string;
+  payment_method: string;
+  origin: string;
+  destination: string;
+  departs_at: string;
+  plate: string;
+}
+
 export default function Desk({ embedded = false }: { embedded?: boolean }) {
   const { t, i18n } = useTranslation();
   const { agencySession } = useAuth();
@@ -34,16 +35,15 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   const [trips, setTrips] = useState<DeskTrip[]>([]);
   const [tripId, setTripId] = useState<number | null>(null);
   const [manifest, setManifest] = useState<Manifest | null>(null);
-  const [fill, setFill] = useState<FillData | null>(null);
+  const [loadingTrips, setLoadingTrips] = useState(false);
+  const [loadingManifest, setLoadingManifest] = useState(false);
 
-  const [scan, setScan] = useState("");
-  const [inspectSeat, setInspectSeat] = useState<number | null>(null);
-  const [weights, setWeights] = useState<Record<number, string>>({});
-  const [lateNotes, setLateNotes] = useState<Record<number, string>>({});
-  const [consent, setConsent] = useState<Record<number, boolean>>({});
-  const [seatChoice, setSeatChoice] = useState<Record<number, number>>({});
+  // Filtres et Recherche dans le plan de places
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterSeatType, setFilterSeatType] = useState<"all" | "free" | "occupied">("all");
+  const [viewMode, setViewMode] = useState<"cards" | "bus">("cards");
 
-  // Vente rapide au guichet par la secrétaire (paiement en espèces ou Mobile Money + ajout direct du passager sur un départ choisi)
+  // Vente directe au guichet (paiement en espèces)
   const [walkIn, setWalkIn] = useState({
     passenger_name: "",
     seat_id: 0,
@@ -54,10 +54,16 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
     luggage_weight_kg: "",
   });
 
+  // Calculateur de monnaie en espèces (rendu de caisse)
+  const [cashTendered, setCashTendered] = useState("");
+
+  // Reçu de billet émis en direct
+  const [issuedReceipt, setIssuedReceipt] = useState<IssuedTicketReceipt | null>(null);
+
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // Journal de Caisse quotidien du guichet
+  // Journal de Caisse du Guichet
   const [cashJournal, setCashJournal] = useState<{
     currency_code: string;
     generated_at: string;
@@ -73,34 +79,31 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   } | null>(null);
   const [showJournal, setShowJournal] = useState(false);
 
-  const isSecretary = agencySession?.role === "secretary";
-  const canManageTripStatus = agencySession && ["owner", "manager"].includes(agencySession.role);
-  const canManageBoardingStatus =
-    agencySession && ["owner", "manager", "staff"].includes(agencySession.role) && !isSecretary;
-  const canManage =
-    agencySession && ["owner", "manager", "secretary"].includes(agencySession.role);
-
   const fail = useCallback(
     (e: unknown) => setError(e instanceof ApiError ? e.message : t("common.error")),
     [t],
   );
 
   const loadTrips = useCallback(() => {
+    setLoadingTrips(true);
     api<DeskTrip[]>("/desk/trips", { realm: "agency" })
       .then((rows) => {
         setTrips(rows);
         if (rows.length > 0) {
-          setTripId((prev) => prev ?? rows[0].id);
+          setTripId((prev) => (prev !== null && rows.some((r) => r.id === prev) ? prev : rows[0].id));
         }
       })
-      .catch(fail);
+      .catch(fail)
+      .finally(() => setLoadingTrips(false));
   }, [fail]);
 
   const loadManifest = useCallback(
     (id: number) => {
+      setLoadingManifest(true);
       api<Manifest>(`/desk/trips/${id}/manifest`, { realm: "agency" })
         .then(setManifest)
-        .catch(fail);
+        .catch(fail)
+        .finally(() => setLoadingManifest(false));
     },
     [fail],
   );
@@ -110,9 +113,10 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   }, [agencySession, loadTrips]);
 
   useEffect(() => {
-    setFill(null);
     setMessage("");
     setError("");
+    setWalkIn((prev) => ({ ...prev, seat_id: 0 }));
+    setCashTendered("");
     if (tripId) loadManifest(tripId);
   }, [tripId, loadManifest]);
 
@@ -127,121 +131,95 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   const current = trips.find((x) => x.id === tripId);
   const tz = current?.timezone ?? "UTC";
   const minor = agencySession.agency.minor_units;
-  const nextToCall = manifest?.tickets.find((k) => k.status === "valid" && !k.late_notice);
 
-  const freeSeatsList =
-    manifest?.seats.filter(
-      (s) => !manifest.tickets.some((k) => k.seat_no === s.seat_no && k.status !== "no_show"),
-    ) ?? [];
+  // Calcul des places libres et occupées avec les billets
+  const seatDetailsList = useMemo(() => {
+    if (!manifest) return [];
+    return manifest.seats.map((s) => {
+      const ticket = manifest.tickets.find((k) => k.seat_no === s.seat_no && k.status !== "no_show");
+      const isOccupied = Boolean(ticket);
+      const isFree = !ticket;
+      const isSelected = walkIn.seat_id === s.id;
+      return {
+        ...s,
+        ticket: ticket || null,
+        isOccupied,
+        isFree,
+        isSelected,
+      };
+    });
+  }, [manifest, walkIn.seat_id]);
 
-  async function act(ticketId: number, action: string, note?: string) {
-    setError("");
-    setMessage("");
-    try {
-      await api(`/desk/tickets/${ticketId}/action`, {
-        body: { action, ...(note ? { note } : {}) },
-        realm: "agency",
-      });
-      await loadManifest(tripId!);
-      loadTrips();
-    } catch (e) {
-      fail(e);
-    }
-  }
+  const freeSeats = useMemo(() => seatDetailsList.filter((s) => s.isFree), [seatDetailsList]);
+  const occupiedSeats = useMemo(() => seatDetailsList.filter((s) => s.isOccupied), [seatDetailsList]);
 
-  async function setTripStatus(status: "boarding" | "departed" | "completed") {
-    if (!tripId) return;
-    setError("");
-    try {
-      await api(`/agency/trips/${tripId}/status`, { body: { status }, realm: "agency" });
-      setMessage(`Statut du voyage mis à jour : ${STATUS_BADGES[status]}`);
-      await loadManifest(tripId);
-      loadTrips();
-    } catch (e) {
-      fail(e);
-    }
-  }
+  // Siège actuellement sélectionné pour l'encaissement en espèces
+  const selectedSeatObj = useMemo(
+    () => seatDetailsList.find((s) => s.id === walkIn.seat_id) ?? null,
+    [seatDetailsList, walkIn.seat_id],
+  );
 
-  async function doScan() {
-    setError("");
-    setMessage("");
-    try {
-      const r = await api<{ passenger_name: string; seat_no: number; reference: string }>("/desk/scan", {
-        body: { qr_token: scan.trim() },
-        realm: "agency",
-      });
-      setMessage(`✓ Billet validé : ${r.passenger_name} · Siège #${r.seat_no} (${r.reference})`);
-      setScan("");
-      if (tripId) await loadManifest(tripId);
-      loadTrips();
-    } catch (e) {
-      fail(e);
-    }
-  }
+  // Filtrage selon recherche & onglets
+  const filteredSeats = useMemo(() => {
+    return seatDetailsList.filter((s) => {
+      if (filterSeatType === "free" && !s.isFree) return false;
+      if (filterSeatType === "occupied" && !s.isOccupied) return false;
 
-  async function addLuggage(ticketId: number) {
-    setError("");
-    try {
-      const r = await api<{ tag_code: string; fee: number }>(`/desk/tickets/${ticketId}/luggage`, {
-        body: { weight_kg: Number(weights[ticketId]), pieces: 1 },
-        realm: "agency",
-      });
-      const feeStr =
-        r.fee > 0
-          ? ` (Supplément : ${formatMoney(r.fee, agencySession!.agency.currency_code, minor, i18n.language)})`
-          : " (Franchise gratuite)";
-      setMessage(`🧳 Bagage enregistré : étiquette ${r.tag_code}${feeStr}`);
-      setWeights({ ...weights, [ticketId]: "" });
-      loadManifest(tripId!);
-    } catch (e) {
-      fail(e);
-    }
-  }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const matchSeatNo = String(s.seat_no).includes(q);
+        const matchName = s.ticket?.passenger_name?.toLowerCase().includes(q) ?? false;
+        const matchRef = s.ticket?.reference?.toLowerCase().includes(q) ?? false;
+        const matchPhone = s.ticket?.phone?.toLowerCase().includes(q) ?? false;
+        return matchSeatNo || matchName || matchRef || matchPhone;
+      }
+      return true;
+    });
+  }, [seatDetailsList, filterSeatType, searchQuery]);
 
-  async function openFill() {
-    if (!tripId) return;
-    setError("");
-    api<FillData>(`/desk/trips/${tripId}/fill-candidates`, { realm: "agency" })
-      .then(setFill)
-      .catch(fail);
-  }
+  // Rendu de monnaie calculé
+  const tripPrice = manifest?.price ?? 0;
+  const tenderedAmount = Number(cashTendered) || 0;
+  const changeDue = tenderedAmount > 0 ? tenderedAmount - tripPrice : 0;
 
-  async function transfer(c: FillCandidate) {
-    setError("");
-    setMessage("");
-    try {
-      await api(`/desk/tickets/${c.ticket_id}/transfer`, {
-        body: {
-          to_trip_id: tripId,
-          seat_id: seatChoice[c.ticket_id],
-          consent: Boolean(consent[c.ticket_id]),
-        },
-        realm: "agency",
-      });
-      setMessage(`✓ ${c.passenger_name} avancé avec succès sur ce départ imminent !`);
-      await loadManifest(tripId!);
-      openFill();
-      loadTrips();
-    } catch (e) {
-      fail(e);
-    }
-  }
-
-  async function sellWalkIn(e: FormEvent) {
+  // Encaissement en espèces & vente directe
+  async function handleSellWalkIn(e: FormEvent) {
     e.preventDefault();
-    if (!tripId) return;
+    if (!tripId || !walkIn.seat_id || !walkIn.passenger_name.trim()) return;
     setError("");
     setMessage("");
+
     try {
-      const res = await api<{ reference: string; seat_no: number; payment_method: string }>(`/desk/trips/${tripId}/sell`, {
-        body: {
-          ...walkIn,
-          luggage_weight_kg: walkIn.luggage_weight_kg ? Number(walkIn.luggage_weight_kg) : 0,
+      const res = await api<{ reference: string; seat_no: number; payment_method: string }>(
+        `/desk/trips/${tripId}/sell`,
+        {
+          body: {
+            ...walkIn,
+            luggage_weight_kg: walkIn.luggage_weight_kg ? Number(walkIn.luggage_weight_kg) : 0,
+          },
+          realm: "agency",
         },
-        realm: "agency",
-      });
-      const modeLabel = res.payment_method === "cash" ? "Espèces (Cash)" : res.payment_method.toUpperCase();
-      setMessage(`✓ Passager ajouté sur le siège #${res.seat_no} (${modeLabel}) — Réf. ${res.reference}`);
+      );
+
+      // Ouvrir le reçu imprimable
+      if (current && manifest) {
+        setIssuedReceipt({
+          reference: res.reference,
+          seat_no: res.seat_no,
+          passenger_name: walkIn.passenger_name.trim(),
+          amount: manifest.price,
+          currency_code: manifest.currency_code,
+          payment_method: walkIn.payment_method,
+          origin: current.origin,
+          destination: current.destination,
+          departs_at: current.departs_at,
+          plate: current.plate,
+        });
+      }
+
+      setMessage(`✓ Billet émis avec succès pour ${walkIn.passenger_name} sur le siège #${res.seat_no} !`);
+      
+      // Réinitialiser le formulaire
       setWalkIn({
         passenger_name: "",
         seat_id: 0,
@@ -251,6 +229,9 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
         payment_method: "cash",
         luggage_weight_kg: "",
       });
+      setCashTendered("");
+
+      // Rafraîchir les places en temps réel
       await loadManifest(tripId);
       loadTrips();
     } catch (err) {
@@ -270,739 +251,940 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   }
 
   return (
-    <div className={embedded ? "desk page-embedded" : "container page desk"}>
-      <aside className="desk__trips">
-        <h2 className="subheading">Départs Choisis & Embarquement</h2>
-        {trips.length === 0 && <p className="muted">Aucun départ programmé pour le moment.</p>}
-        {trips.map((x) => (
+    <div className={`desk-v2 ${embedded ? "desk-v2--embedded" : ""}`}>
+      {/* ==================== 1. BANDEAU DES HORAIRES DE DÉPARTS (PLEINE LARGEUR) ==================== */}
+      <section className="desk-timetable-container">
+        <div className="desk-timetable-header">
+          <div>
+            <h2 className="desk-timetable-title">
+              <span>🕒</span> Horaires des Départs Programmés
+            </h2>
+            <span className="muted" style={{ fontSize: "0.92rem" }}>
+              Cliquez sur un horaire pour afficher immédiatement le plan des places et les passagers
+            </span>
+          </div>
           <button
-            key={x.id}
             type="button"
-            className={x.id === tripId ? "desk-trip is-active" : "desk-trip"}
-            onClick={() => setTripId(x.id)}
+            className="btn btn--sm btn--ghost"
+            onClick={loadTrips}
+            title="Rafraîchir les horaires"
+            disabled={loadingTrips}
+            style={{ fontSize: "0.9rem" }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <strong className="mono">{formatTime(x.departs_at, x.timezone, i18n.language)}</strong>
-              <span className="badge" style={{ fontSize: "0.7rem" }}>
-                {STATUS_BADGES[x.status] ?? x.status}
-              </span>
-            </div>
-            <span>
-              {x.origin} <span className="flip-rtl">→</span> {x.destination}
-            </span>
-            <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-              {formatDay(x.departs_at, x.timezone, i18n.language)} · <span className="mono">{x.booked}/{x.seat_count}</span> rés. ·{" "}
-              <span className="mono">{x.boarded}</span> emb.
-            </span>
+            🔄 {loadingTrips ? "Actualisation…" : "Actualiser les départs"}
           </button>
-        ))}
-      </aside>
+        </div>
 
-      <section className="desk__main">
-        {!manifest || !current ? (
-          <div className="card">
-            <p className="muted">Sélectionnez un départ à gauche pour gérer l’embarquement et les billets.</p>
+        {trips.length === 0 ? (
+          <div className="card" style={{ padding: "20px", textAlign: "center" }}>
+            <p className="muted" style={{ margin: 0, fontSize: "1rem" }}>
+              Aucun départ programmé pour le moment.
+            </p>
           </div>
         ) : (
-          <>
-            {/* Barre de pilotage Départ / Arrivée + Scan QR */}
-            <div className="card form-grid">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-                <div>
-                  <span className="badge">{STATUS_BADGES[manifest.status] ?? manifest.status}</span>{" "}
-                  <strong>
-                    {current.origin} → {current.destination}
-                  </strong>{" "}
-                  <span className="muted mono">
-                    ({current.bus_label} · {current.plate})
-                  </span>
-                </div>
+          <div className="desk-timetable-strip">
+            {trips.map((tItem) => {
+              const isActive = tItem.id === tripId;
+              const isFull = tItem.booked >= tItem.seat_count;
+              const freeCount = Math.max(0, tItem.seat_count - tItem.booked);
 
-                {canManageTripStatus && (
-                  <div className="chips">
-                    <button
-                      type="button"
-                      className={manifest.status === "boarding" ? "chip is-active" : "chip"}
-                      onClick={() => setTripStatus("boarding")}
+              return (
+                <button
+                  key={tItem.id}
+                  type="button"
+                  className={`desk-timetable-card ${isActive ? "is-active" : ""}`}
+                  onClick={() => setTripId(tItem.id)}
+                >
+                  <div className="desk-timetable-card__time">
+                    <span className="mono">{formatTime(tItem.departs_at, tItem.timezone, i18n.language)}</span>
+                    <span
+                      className="badge"
+                      style={{
+                        fontSize: "0.76rem",
+                        padding: "3px 8px",
+                        background: isActive ? "var(--accent)" : "rgba(255, 255, 255, 0.08)",
+                        color: "#ffffff",
+                      }}
                     >
-                      1. Ouvrir embarquement
-                    </button>
-                    <button
-                      type="button"
-                      className={manifest.status === "departed" ? "chip is-active" : "chip"}
-                      onClick={() => setTripStatus("departed")}
-                    >
-                      2. Confirmer départ
-                    </button>
-                    <button
-                      type="button"
-                      className={manifest.status === "completed" ? "chip is-active" : "chip"}
-                      onClick={() => setTripStatus("completed")}
-                    >
-                      3. Confirmer arrivée
-                    </button>
+                      {STATUS_BADGES[tItem.status] ?? tItem.status}
+                    </span>
                   </div>
-                )}
+
+                  <div className="desk-timetable-card__route">
+                    {tItem.origin} <span className="flip-rtl">➔</span> {tItem.destination}
+                  </div>
+
+                  <div className="desk-timetable-card__meta">
+                    <span>
+                      🚌 {tItem.bus_label} ({tItem.plate})
+                    </span>
+                    <strong className="mono" style={{ color: "var(--accent)", fontSize: "0.95rem" }}>
+                      {formatMoney(tItem.price, agencySession.agency.currency_code, minor, i18n.language)}
+                    </strong>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2 }}>
+                    <span className="muted" style={{ fontSize: "0.82rem" }}>
+                      {formatDay(tItem.departs_at, tItem.timezone, i18n.language)}
+                    </span>
+                    <span
+                      className="badge"
+                      style={{
+                        fontSize: "0.8rem",
+                        fontWeight: 700,
+                        background: isFull ? "rgba(239, 68, 68, 0.15)" : "rgba(16, 185, 129, 0.15)",
+                        color: isFull ? "#ef4444" : "#10b981",
+                        border: `1px solid ${isFull ? "rgba(239, 68, 68, 0.3)" : "rgba(16, 185, 129, 0.3)"}`,
+                      }}
+                    >
+                      {isFull ? "🔴 Bus Plein" : `🟢 ${freeCount} libre${freeCount > 1 ? "s" : ""}`}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Messages de succès ou d'erreur */}
+      {message && (
+        <motion.div
+          className="demo-note"
+          role="status"
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ fontSize: "1.05rem", padding: "14px 18px" }}
+        >
+          <strong>{message}</strong>
+        </motion.div>
+      )}
+      {error && (
+        <motion.div
+          className="error"
+          role="alert"
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ fontSize: "1.02rem", padding: "12px 16px" }}
+        >
+          {error}
+        </motion.div>
+      )}
+
+      {/* ==================== 2. ZONE PRINCIPALE : PLAN DE SIÈGES + GUICHET VENTE EN ESPÈCES ==================== */}
+      {!manifest || !current ? (
+        <div className="card" style={{ padding: "40px 20px", textAlign: "center" }}>
+          <p className="muted" style={{ fontSize: "1.1rem" }}>
+            {loadingManifest ? "Chargement des places du départ…" : "Veuillez sélectionner un départ ci-dessus."}
+          </p>
+        </div>
+      ) : (
+        <div className="desk-main-grid">
+          {/* ==================== COLONNE GAUCHE : PLAN & ÉTAT DES PLACES ==================== */}
+          <section className="desk-seats-board">
+            <div className="desk-seats-toolbar">
+              <div>
+                <h3 className="desk-seats-title">
+                  💺 Plan des Places — Départ de{" "}
+                  <span className="mono" style={{ color: "var(--accent)" }}>
+                    {formatTime(current.departs_at, tz, i18n.language)}
+                  </span>
+                </h3>
+                <span className="muted" style={{ fontSize: "0.92rem" }}>
+                  {current.origin} ➔ {current.destination} · Autocar : <strong>{current.bus_label}</strong> ({current.plate})
+                </span>
               </div>
 
-              <div className="desk-scan">
+              {/* Badges d'état des places */}
+              <div className="desk-seats-stats">
+                <span className="desk-stat-badge desk-stat-badge--free">
+                  🟢 <strong>{freeSeats.length}</strong> Places Libres
+                </span>
+                <span className="desk-stat-badge desk-stat-badge--occupied">
+                  🔵 <strong>{occupiedSeats.length}</strong> Réservées & Payées
+                </span>
+                <span
+                  className="desk-stat-badge"
+                  style={{ background: "rgba(255, 255, 255, 0.06)", color: "var(--text)" }}
+                >
+                  🏷️ Total : <strong>{manifest.seats.length}</strong>
+                </span>
+              </div>
+            </div>
+
+            {/* Barre de recherche et filtres de places */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 12,
+              }}
+            >
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <button
+                  type="button"
+                  className={`chip ${filterSeatType === "all" ? "is-active" : ""}`}
+                  onClick={() => setFilterSeatType("all")}
+                  style={{ fontSize: "0.92rem", padding: "6px 14px" }}
+                >
+                  Toutes les places ({manifest.seats.length})
+                </button>
+                <button
+                  type="button"
+                  className={`chip ${filterSeatType === "free" ? "is-active" : ""}`}
+                  onClick={() => setFilterSeatType("free")}
+                  style={{
+                    fontSize: "0.92rem",
+                    padding: "6px 14px",
+                    color: filterSeatType === "free" ? "#ffffff" : "#10b981",
+                  }}
+                >
+                  🟢 Libres uniquement ({freeSeats.length})
+                </button>
+                <button
+                  type="button"
+                  className={`chip ${filterSeatType === "occupied" ? "is-active" : ""}`}
+                  onClick={() => setFilterSeatType("occupied")}
+                  style={{
+                    fontSize: "0.92rem",
+                    padding: "6px 14px",
+                    color: filterSeatType === "occupied" ? "#ffffff" : "#60a5fa",
+                  }}
+                >
+                  🔵 Réservées avec Noms ({occupiedSeats.length})
+                </button>
+              </div>
+
+              {/* Champ de recherche direct passager / siège */}
+              <div style={{ minWidth: 240, flex: "1 1 240px", maxWidth: 360 }}>
                 <input
+                  type="search"
                   className="input"
-                  value={scan}
-                  placeholder="Scanner ou coller un code QR billet (VLT:...)"
-                  onChange={(e) => setScan(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && doScan()}
+                  style={{ fontSize: "0.95rem", padding: "8px 14px", width: "100%", borderRadius: 10 }}
+                  placeholder="🔍 Rechercher passager, réf ou N° siège…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <button type="button" className="btn" onClick={doScan} disabled={!scan.trim()}>
-                  Scanner QR
+              </div>
+
+              {/* Bascule mode Grille Détaillée / Mode Plan Bus */}
+              <div className="chips">
+                <button
+                  type="button"
+                  className={`chip ${viewMode === "cards" ? "is-active" : ""}`}
+                  onClick={() => setViewMode("cards")}
+                  style={{ fontSize: "0.88rem" }}
+                >
+                  📋 Grille avec Noms
+                </button>
+                <button
+                  type="button"
+                  className={`chip ${viewMode === "bus" ? "is-active" : ""}`}
+                  onClick={() => setViewMode("bus")}
+                  style={{ fontSize: "0.88rem" }}
+                >
+                  🚌 Plan Autocar
                 </button>
               </div>
             </div>
 
-            {message && (
-              <div className="demo-note" role="status">
-                <strong>{message}</strong>
-              </div>
-            )}
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-
-            {/* Carte d'appel prioritaire (Personnel d'embarquement / Quai uniquement, masqué pour la Secrétaire) */}
-            {!isSecretary && (
-              <motion.div
-                className="card call-card"
-                key={nextToCall?.id ?? "done"}
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-              >
-                <span className="muted">Appel au micro / Porte d’embarquement</span>
-                {nextToCall ? (
-                  <>
-                    <strong className="call-card__ref mono">{nextToCall.reference}</strong>
-                    <span className="call-card__name">
-                      {nextToCall.passenger_name} · Siège #{nextToCall.seat_no}
-                    </span>
-                    <div className="call-card__actions">
-                      <button type="button" className="btn" onClick={() => act(nextToCall.id, "board")}>
-                        ✓ Présent & Embarqué
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost"
-                        onClick={() => act(nextToCall.id, "late", "Signalé en retard — arrive sous peu")}
-                      >
-                        ⏱ Client en retard
-                      </button>
-                      {canManage && (
-                        <button type="button" className="btn btn--ghost" onClick={() => act(nextToCall.id, "absent")}>
-                          ✕ Déclarer absent (libère le siège)
-                        </button>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <strong>Tous les passagers attendus ont été traités ({freeSeatsList.length} siège(s) libre(s)).</strong>
-                )}
-              </motion.div>
-            )}
-
-            {/* Alerte pour la secrétaire si passagers absents au quai */}
-            {isSecretary && manifest.tickets.some((k) => k.status === "no_show") && (
-              <div className="card" style={{ background: "rgba(239, 68, 68, 0.12)", border: "1px solid #ef4444", padding: "12px 16px" }}>
-                <strong style={{ color: "#ef4444" }}>📢 Alerte Quai Embarquement :</strong>
-                <p style={{ margin: "4px 0 0", fontSize: "var(--text-sm)" }}>
-                  {manifest.tickets.filter((k) => k.status === "no_show").length} passager(s) ont été déclarés absents par l'équipe de quai. Leurs places sont redevenues libres pour une vente directe au guichet !
+            {/* Alerte si aucun résultat selon la recherche */}
+            {filteredSeats.length === 0 && (
+              <div className="card" style={{ padding: "30px", textAlign: "center", margin: "10px 0" }}>
+                <p className="muted" style={{ margin: 0, fontSize: "1rem" }}>
+                  Aucune place ne correspond à votre filtre "{searchQuery}".
                 </p>
               </div>
             )}
 
-            {/* Indicateur Bus Plein (100% complet) */}
-            {manifest.seats.length > 0 && freeSeatsList.length === 0 && !manifest.tickets.some((k) => k.status === "no_show") && (
-              <div
-                className="bus-full-banner"
-                style={{
-                  background: "linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.35))",
-                  border: "2px solid #10b981",
-                  borderRadius: "var(--radius-md)",
-                  padding: "var(--space-4)",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: 12,
-                  boxShadow: "0 0 20px rgba(16, 185, 129, 0.3)",
-                }}
-              >
-                <div>
-                  <span className="badge" style={{ background: "#10b981", color: "#ffffff", fontWeight: 700 }}>
-                    🟢 BUS PLEIN (100 % COMPLET)
-                  </span>
-                  <h3 style={{ margin: "6px 0 0", color: "#10b981" }}>
-                    Toutes les places sont occupées ! Le bus est plein.
-                  </h3>
-                </div>
-                {canManageTripStatus && manifest.status !== "departed" && manifest.status !== "completed" && (
-                  <button
-                    type="button"
-                    className="btn btn--lg"
-                    style={{ background: "#10b981", color: "#ffffff", fontWeight: 700 }}
-                    onClick={() => setTripStatus("departed")}
-                  >
-                    🚀 Valider & Marquer Départ du Bus
-                  </button>
-                )}
-              </div>
-            )}
+            {/* ==================== VUE 1 : GRILLE DÉTAILLÉE DES SIÈGES AVEC NOMS DES PASSAGERS ==================== */}
+            {viewMode === "cards" && (
+              <div className="desk-seat-cards-grid">
+                {filteredSeats.map((item) => {
+                  const { ticket, isOccupied, isSelected } = item;
 
-            <div className="desk-grid">
-              {/* Plan temps réel des sièges + Contrôle tactile passagers */}
-              <div className="card form-grid">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                  <h3 className="subheading" style={{ margin: 0 }}>
-                    Plan des places ({freeSeatsList.length} libres · {manifest.tickets.filter((k) => k.status === "boarded").length} à bord)
-                  </h3>
-                  <div className="chips">
-                    <span className="badge" style={{ background: "#10b981", color: "#fff" }}>🟢 Vert = À bord</span>
-                    <span className="badge" style={{ background: "#ef4444", color: "#fff" }}>🔴 Rouge = Absent</span>
-                    <span className="badge" style={{ background: "#3b82f6", color: "#fff" }}>🔵 Bleu = Réservé</span>
-                  </div>
-                </div>
-
-                {manifest.layout && (
-                  <SeatGrid
-                    seatsPerRow={manifest.layout.seats_per_row}
-                    seats={manifest.seats.map((s) => {
-                      const k = manifest.tickets.find((x) => x.seat_no === s.seat_no);
-                      let cls = "";
-                      if (k) {
-                        if (k.status === "boarded") cls = "seat--boarded";
-                        else if (k.status === "no_show") cls = "seat--noshow";
-                        else cls = "seat--paid";
-                      } else if (walkIn.seat_id === s.id) {
-                        cls = "seat--selected";
-                      }
-                      if (inspectSeat === s.id) {
-                        cls += " is-active";
-                      }
-                      return {
-                        ...s,
-                        disabled: false,
-                        className: cls,
-                        title: k
-                          ? `Siège #${s.seat_no} · ${k.passenger_name} (${k.status === "boarded" ? "À bord" : k.status === "no_show" ? "Absent" : "Réservé"})`
-                          : `Siège #${s.seat_no} · Libre`,
-                      };
-                    })}
-                    onSelect={(s) => {
-                      setInspectSeat(s.id);
-                      const k = manifest.tickets.find((x) => x.seat_no === s.seat_no);
-                      if (!k || k.status === "no_show") {
-                        setWalkIn((cur) => ({ ...cur, seat_id: s.id }));
-                      }
-                    }}
-                  />
-                )}
-
-                {/* Panneau de contrôle interactif du siège sélectionné */}
-                {inspectSeat && (() => {
-                  const sObj = manifest.seats.find((s) => s.id === inspectSeat);
-                  const tObj = sObj ? manifest.tickets.find((k) => k.seat_no === sObj.seat_no) : null;
-                  return (
-                    <div
-                      className="card form-grid"
-                      style={{
-                        background: "rgba(255, 255, 255, 0.05)",
-                        border: "2px solid var(--accent)",
-                        padding: "var(--space-3) var(--space-4)",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                        <strong>
-                          Siège #{sObj?.seat_no} ({sObj?.seat_class}) — {tObj ? tObj.passenger_name : "Siège Libre"}
-                        </strong>
-                        <button type="button" className="btn btn--sm btn--ghost" onClick={() => setInspectSeat(null)}>
-                          ✕ Fermer
-                        </button>
-                      </div>
-
-                      {tObj ? (
-                        <>
-                          <div className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                            Réf : <strong className="mono">{tObj.reference}</strong> · Statut actuel :{" "}
-                            <span className="badge">
-                              {tObj.status === "boarded" ? "🟢 À bord" : tObj.status === "no_show" ? "🔴 Absent (No-show)" : "🔵 Payé / Réservé"}
-                            </span>
-                            {tObj.phone && ` · Tél : ${tObj.phone}`}
-                            {tObj.late_notice && ` · ⏱ ${tObj.late_notice}`}
-                          </div>
-
-                          <div className="chips" style={{ marginTop: 4 }}>
-                            {canManageBoardingStatus && tObj.status === "valid" && (
-                              <>
-                                <button
-                                  type="button"
-                                  className="btn btn--sm"
-                                  style={{ background: "#10b981", color: "#ffffff", fontWeight: 700 }}
-                                  onClick={() => act(tObj.id, "board")}
-                                >
-                                  🟢 Faire monter à bord (Siège devient Vert)
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn--sm"
-                                  style={{ background: "#ef4444", color: "#ffffff", fontWeight: 700 }}
-                                  onClick={() => act(tObj.id, "absent")}
-                                >
-                                  🔴 Déclarer Absent (Siège devient Rouge)
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn--sm btn--ghost"
-                                  onClick={() => act(tObj.id, "late", "Arrive sous peu")}
-                                >
-                                  ⏱ En retard
-                                </button>
-                              </>
-                            )}
-
-                            {canManageBoardingStatus && tObj.status === "boarded" && (
-                              <button type="button" className="btn btn--sm btn--ghost" onClick={() => act(tObj.id, "undo")}>
-                                ↩ Annuler statut à bord
-                              </button>
-                            )}
-
-                            {tObj.status === "no_show" && (
-                              <>
-                                {canManageBoardingStatus && (
-                                  <button type="button" className="btn btn--sm" onClick={openFill}>
-                                    🔄 Remplacer par un client sans bagage d’un autre bus
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  className="btn btn--sm btn--ghost"
-                                  onClick={() => setWalkIn((cur) => ({ ...cur, seat_id: sObj!.id }))}
-                                >
-                                  💵 Vente directe guichet sur ce siège libéré
-                                </button>
-                                {canManageBoardingStatus && (
-                                  <button type="button" className="btn btn--sm btn--ghost" onClick={() => act(tObj.id, "undo")}>
-                                    ↩ Réintégrer passager initial
-                                  </button>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </>
-                      ) : (
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                          <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                            Ce siège est actuellement libre.
-                          </span>
-                          <button
-                            type="button"
-                            className="btn btn--sm"
-                            onClick={() => setWalkIn((cur) => ({ ...cur, seat_id: sObj!.id }))}
-                          >
-                            💵 Choisir pour vente guichet
-                          </button>
-                          <button type="button" className="btn btn--sm btn--ghost" onClick={openFill}>
-                            🔄 Remplacer par un passager sans bagage
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {canManage && (
-                  <button type="button" className="btn" onClick={openFill}>
-                    🔄 Avancer des passagers sans bagage (écart ≤ {manifest.fill_window_minutes} min)
-                  </button>
-                )}
-              </div>
-
-              {/* Liste complète des passagers (présents, retardataires, absents, bagages) */}
-              <div className="card">
-                <h3 className="subheading">Manifeste passagers & Gestion retards / absents</h3>
-                <ul className="call-list">
-                  {manifest.tickets.map((k) => (
-                    <li key={k.id} className={`call-row call-row--${k.status}`}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                        <strong className="mono">
-                          {k.reference} · Siège #{k.seat_no}
-                        </strong>
-                        <span className="badge">{k.status}</span>
-                      </div>
-                      <span>
-                        <strong>{k.passenger_name}</strong>{" "}
-                        <span className="muted mono">
-                          ({k.id_type ?? "ID"} {k.id_number ?? "—"} {k.phone ? `· ${k.phone}` : ""})
-                        </span>
-                      </span>
-                      <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                        Bagages enregistrés : <strong className="mono">{k.luggage_pieces}</strong>
-                        {k.checked_in_at ? " · ✓ Enregistré guichet" : ""}
-                        {k.late_notice ? ` · ⏱ En retard : ${k.late_notice}` : ""}
-                      </span>
-
-                      <div className="call-row__actions">
-                        {canManageBoardingStatus ? (
-                          <>
-                            {k.status === "valid" && (
-                              <>
-                                <button type="button" className="chip" onClick={() => act(k.id, "checkin")}>
-                                  Pointé
-                                </button>
-                                <button type="button" className="chip is-active" onClick={() => act(k.id, "board")}>
-                                  Embarquer
-                                </button>
-                                <button type="button" className="chip" onClick={() => act(k.id, "absent")}>
-                                  Absent
-                                </button>
-                                <input
-                                  className="input input--sm"
-                                  placeholder="Note retard"
-                                  value={lateNotes[k.id] ?? ""}
-                                  onChange={(e) => setLateNotes({ ...lateNotes, [k.id]: e.target.value })}
-                                />
-                                <button
-                                  type="button"
-                                  className="chip"
-                                  onClick={() => act(k.id, "late", lateNotes[k.id] || "En route (signalé au guichet)")}
-                                >
-                                  ⏱ Retard
-                                </button>
-                                <input
-                                  className="input input--sm"
-                                  inputMode="decimal"
-                                  placeholder="Bagage kg"
-                                  value={weights[k.id] ?? ""}
-                                  onChange={(e) => setWeights({ ...weights, [k.id]: e.target.value })}
-                                />
-                                <button type="button" className="chip" disabled={!weights[k.id]} onClick={() => addLuggage(k.id)}>
-                                  + Bagage
-                                </button>
-                              </>
-                            )}
-                            {(k.status === "boarded" || k.status === "no_show") && (
-                              <button type="button" className="chip" onClick={() => act(k.id, "undo")}>
-                                Annuler statut
-                              </button>
-                            )}
-                          </>
-                        ) : (
+                  // SIÈGE DÉJÀ RÉSERVÉ / OCCUPÉ
+                  if (isOccupied && ticket) {
+                    return (
+                      <div key={item.id} className="desk-seat-card desk-seat-card--occupied">
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span className="desk-seat-badge mono">#{item.seat_no}</span>
                           <span
                             className="badge"
                             style={{
-                              background: k.status === "boarded" ? "rgba(16, 185, 129, 0.15)" : k.status === "no_show" ? "rgba(239, 68, 68, 0.15)" : "rgba(59, 130, 246, 0.15)",
-                              color: k.status === "boarded" ? "#059669" : k.status === "no_show" ? "#dc2626" : "#2563eb",
+                              fontSize: "0.78rem",
                               fontWeight: 700,
+                              background:
+                                ticket.status === "boarded"
+                                  ? "rgba(16, 185, 129, 0.2)"
+                                  : "rgba(59, 130, 246, 0.2)",
+                              color: ticket.status === "boarded" ? "#10b981" : "#60a5fa",
+                              border: `1px solid ${ticket.status === "boarded" ? "rgba(16, 185, 129, 0.4)" : "rgba(59, 130, 246, 0.4)"}`,
                             }}
                           >
-                            {k.status === "boarded" ? "🟢 À bord" : k.status === "no_show" ? "🔴 Absent (Quai)" : "🔵 Payé / Réservé"}
+                            {ticket.status === "boarded" ? "🟢 À bord" : "🔵 Réservé & Payé"}
                           </span>
-                        )}
+                        </div>
+
+                        {/* Nom du passager affiché directement en grand */}
+                        <div className="desk-seat-card__passenger-name" title={ticket.passenger_name}>
+                          👤 {ticket.passenger_name}
+                        </div>
+
+                        <div className="desk-seat-card__meta mono">
+                          <span>Réf : {ticket.reference}</span>
+                          {ticket.phone && <span>📞 {ticket.phone}</span>}
+                          {ticket.id_number && (
+                            <span>
+                              {ticket.id_type ?? "ID"} : {ticket.id_number}
+                            </span>
+                          )}
+                          <span className="muted" style={{ fontSize: "0.75rem" }}>
+                            Classe : {item.seat_class}
+                          </span>
+                        </div>
                       </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+                    );
+                  }
 
-            {/* Remplissage réglementé : passagers SANS bagage d'un départ proche (<= fill_window_minutes, ex. 40 min) */}
-            {fill && canManage && (
-              <div className="card form-grid">
-                <div>
-                  <span className="badge">Règle stricte de proximité & accord physique</span>
-                  <h3 className="subheading" style={{ marginTop: 6 }}>
-                    Remplacement des absents par des passagers sans bagage (départ dans ≤ {fill.fill_window_minutes} min)
-                  </h3>
-                  <p className="muted" style={{ margin: 0, fontSize: "var(--text-sm)" }}>
-                    Seuls les voyageurs <strong>sans aucun bagage enregistré</strong> sur la même ligne dont le bus part
-                    dans <strong>{fill.fill_window_minutes} minutes maximum</strong> apparaissent ici. Demandez-leur
-                    physiquement leur accord en salle d’embarquement avant validation.
-                  </p>
-                </div>
-
-                {fill.candidates.length === 0 ? (
-                  <p className="muted">
-                    Aucun passager sans bagage trouvé dans la fenêtre de {fill.fill_window_minutes} minutes après ce départ.
-                  </p>
-                ) : (
-                  <ul className="call-list">
-                    {fill.candidates.map((c) => (
-                      <li key={c.ticket_id} className="call-row">
-                        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                          <div>
-                            <strong className="mono">{c.reference}</strong> · <strong>{c.passenger_name}</strong>
-                          </div>
-                          <span className="badge badge--sim">
-                            Départ initial à {formatTime(c.from_departs_at, tz, i18n.language)} (écart +{c.gap_minutes} min ≤{" "}
-                            {fill.fill_window_minutes} min) · 0 bagage
-                          </span>
-                        </div>
-
-                        <div className="search-grid" style={{ alignItems: "center", marginTop: 6 }}>
-                          <select
-                            className="select"
-                            value={seatChoice[c.ticket_id] ?? ""}
-                            onChange={(e) => setSeatChoice({ ...seatChoice, [c.ticket_id]: Number(e.target.value) })}
-                          >
-                            <option value="">Attribuer un siège libre…</option>
-                            {fill.free_seats.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                Siège #{s.seat_no} ({s.seat_class})
-                              </option>
-                            ))}
-                          </select>
-
-                          <label className="checkbox-row">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(consent[c.ticket_id])}
-                              onChange={(e) => setConsent({ ...consent, [c.ticket_id]: e.target.checked })}
-                            />
-                            <span>Accord demandé physiquement au passager</span>
-                          </label>
-
-                          <button
-                            type="button"
-                            className="btn"
-                            disabled={!seatChoice[c.ticket_id] || !consent[c.ticket_id]}
-                            onClick={() => transfer(c)}
-                          >
-                            Avancer sur ce départ
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {/* Ajout direct d'un passager par la secrétaire sur le départ choisi + encaissement Espèces ou Mobile Money */}
-            {canManage && freeSeatsList.length > 0 && (
-              <form className="card form-grid" onSubmit={sellWalkIn} style={{ border: "1px solid var(--accent)" }}>
-                <div>
-                  <span className="badge">💵 Guichet Secrétaire — Paiement en Espèces ou Mobile Money</span>
-                  <h3 className="subheading" style={{ marginTop: 6, marginBottom: 4 }}>
-                    Ajouter un passager sur ce départ choisi ({current.origin} → {current.destination})
-                  </h3>
-                  <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
-                    La secrétaire reçoit le paiement en <strong>espèces (cash)</strong> (ou Mobile Money), note cela dans l’application et inscrit immédiatement le passager grâce à ses coordonnées sur un siège libre.
-                  </p>
-                </div>
-
-                <div className="search-grid">
-                  <label className="field">
-                    <span className="field__label">Mode de paiement reçu par la secrétaire</span>
-                    <select
-                      className="select"
-                      value={walkIn.payment_method}
-                      onChange={(e) => setWalkIn({ ...walkIn, payment_method: e.target.value })}
-                    >
-                      <option value="cash">💵 Paiement en Espèces (Cash reçu au guichet)</option>
-                      <option value="orange_money">🍊 Orange Money</option>
-                      <option value="mtn_momo">💛 MTN Mobile Money</option>
-                      <option value="wave">🌊 Wave</option>
-                      <option value="card">💳 Carte Bancaire / TPE</option>
-                    </select>
-                  </label>
-
-                  <label className="field">
-                    <span className="field__label">Siège libre sur ce départ (ou cliquez sur le plan)</span>
-                    <select
-                      className="select"
-                      required
-                      value={walkIn.seat_id}
-                      onChange={(e) => setWalkIn({ ...walkIn, seat_id: Number(e.target.value) })}
-                    >
-                      <option value={0}>Choisir un siège libre…</option>
-                      {freeSeatsList.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          Siège #{s.seat_no} ({s.seat_class})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="search-grid">
-                  <label className="field">
-                    <span className="field__label">Nom complet du passager</span>
-                    <input
-                      className="input"
-                      required
-                      placeholder="Nom & prénom"
-                      value={walkIn.passenger_name}
-                      onChange={(e) => setWalkIn({ ...walkIn, passenger_name: e.target.value })}
-                    />
-                  </label>
-                  <label className="field">
-                    <span className="field__label">Téléphone du passager</span>
-                    <input
-                      className="input"
-                      placeholder="+237 6..."
-                      value={walkIn.phone}
-                      onChange={(e) => setWalkIn({ ...walkIn, phone: e.target.value })}
-                    />
-                  </label>
-                  <label className="field">
-                    <span className="field__label">Pièce d’identité (CNI / Passeport)</span>
-                    <input
-                      className="input"
-                      placeholder="N° CNI / Passeport"
-                      value={walkIn.id_number}
-                      onChange={(e) => setWalkIn({ ...walkIn, id_number: e.target.value })}
-                    />
-                  </label>
-                  <label className="field">
-                    <span className="field__label">Bagages (kg, optionnel)</span>
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      step="0.5"
-                      placeholder="0 kg"
-                      value={walkIn.luggage_weight_kg}
-                      onChange={(e) => setWalkIn({ ...walkIn, luggage_weight_kg: e.target.value })}
-                    />
-                  </label>
-                </div>
-                <div>
-                  <button type="submit" className="btn" disabled={!walkIn.passenger_name.trim() || !walkIn.seat_id}>
-                    ✓ Encaisser ({walkIn.payment_method === "cash" ? "Espèces" : walkIn.payment_method.toUpperCase()}) & Ajouter le passager ({formatMoney(manifest.price, manifest.currency_code, minor, i18n.language)})
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* JOURNAL DE CAISSE QUOTIDIEN DU GUICHET */}
-            <div className="card form-grid" style={{ marginTop: "var(--space-4)", border: "1px solid var(--accent)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                <div>
-                  <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)" }}>
-                    💼 Journal de Caisse & Recettes Guichet
-                  </span>
-                  <h3 className="subheading" style={{ margin: "4px 0 2px" }}>
-                    Bilan Quotidien des Encaissements
-                  </h3>
-                  <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
-                    Suivez le cumul des ventes au guichet en direct : Espèces, Orange Money, MTN MoMo et Carte Bancaire.
-                  </p>
-                </div>
-
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    type="button"
-                    className="btn btn--outline"
-                    onClick={loadCashJournal}
-                    style={{ fontSize: "var(--text-xs)", fontWeight: 700 }}
-                  >
-                    {showJournal ? "🔄 Actualiser la caisse" : "📊 Consulter mon journal de caisse"}
-                  </button>
-                  {showJournal && (
+                  // SIÈGE LIBRE (DISPONIBLE POUR VENTE EN ESPÈCES)
+                  return (
                     <button
+                      key={item.id}
                       type="button"
-                      className="btn btn--ghost"
-                      onClick={() => window.print()}
-                      style={{ fontSize: "var(--text-xs)" }}
+                      className={`desk-seat-card desk-seat-card--free ${isSelected ? "is-selected" : ""}`}
+                      onClick={() => {
+                        setWalkIn((prev) => ({ ...prev, seat_id: item.id }));
+                        // Défiler vers le formulaire d'encaissement sur mobile
+                        document.getElementById("desk-cash-panel")?.scrollIntoView({ behavior: "smooth" });
+                      }}
                     >
-                      🖨️ Imprimer
-                    </button>
-                  )}
-                </div>
-              </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span className="desk-seat-badge mono">#{item.seat_no}</span>
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: "0.78rem",
+                            fontWeight: 700,
+                            background: isSelected ? "var(--accent)" : "rgba(16, 185, 129, 0.2)",
+                            color: isSelected ? "#ffffff" : "#10b981",
+                            border: `1px solid ${isSelected ? "var(--accent)" : "rgba(16, 185, 129, 0.4)"}`,
+                          }}
+                        >
+                          {isSelected ? "✨ Choisi pour vente" : "🟢 Place Libre"}
+                        </span>
+                      </div>
 
-              {showJournal && cashJournal && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
-                  {/* KPI Cards */}
+                      <div
+                        style={{
+                          fontSize: "1.02rem",
+                          fontWeight: 700,
+                          color: isSelected ? "var(--accent)" : "#10b981",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          margin: "4px 0",
+                        }}
+                      >
+                        <span>💵</span>
+                        <span>{isSelected ? "Prêt à encaisser" : "Cliquer pour vendre"}</span>
+                      </div>
+
+                      <div className="desk-seat-card__meta">
+                        <strong className="mono" style={{ color: "var(--text)", fontSize: "0.95rem" }}>
+                          Tarif : {formatMoney(manifest.price, manifest.currency_code, minor, i18n.language)}
+                        </strong>
+                        <span className="muted" style={{ fontSize: "0.78rem" }}>
+                          Classe : {item.seat_class}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ==================== VUE 2 : PLAN D'AUTOCAR RÉALISTE AVEC COCKPIT & NOMS ==================== */}
+            {viewMode === "bus" && manifest.layout && (
+              <div
+                style={{
+                  background: "var(--surface)",
+                  border: "2px solid var(--border)",
+                  borderRadius: "28px",
+                  padding: "24px 18px",
+                  maxWidth: 720,
+                  margin: "10px auto",
+                  boxShadow: "0 10px 30px rgba(0, 0, 0, 0.1)",
+                }}
+              >
+                {/* Cockpit Conducteur */}
+                <div
+                  style={{
+                    borderBottom: "2px dashed var(--border)",
+                    paddingBottom: 16,
+                    marginBottom: 18,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
                   <div
                     style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                      gap: 10,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      background: "rgba(140, 107, 184, 0.15)",
+                      padding: "8px 16px",
+                      borderRadius: 14,
+                      fontWeight: 700,
+                      color: "var(--accent)",
+                      fontSize: "0.95rem",
                     }}
                   >
-                    <div className="card" style={{ padding: "10px", background: "rgba(16, 185, 129, 0.1)", borderColor: "#10b981" }}>
-                      <span className="muted" style={{ fontSize: 11, display: "block" }}>💵 Espèces (Cash)</span>
-                      <strong style={{ fontSize: "var(--text-base)", color: "#059669" }}>
-                        {formatMoney(cashJournal.summary.total_cash, cashJournal.currency_code, minor, i18n.language)}
-                      </strong>
-                    </div>
-
-                    <div className="card" style={{ padding: "10px", background: "rgba(245, 158, 11, 0.1)", borderColor: "#f59e0b" }}>
-                      <span className="muted" style={{ fontSize: 11, display: "block" }}>📱 Mobile Money</span>
-                      <strong style={{ fontSize: "var(--text-base)", color: "#d97706" }}>
-                        {formatMoney(cashJournal.summary.total_momo, cashJournal.currency_code, minor, i18n.language)}
-                      </strong>
-                    </div>
-
-                    <div className="card" style={{ padding: "10px", background: "rgba(59, 130, 246, 0.1)", borderColor: "#3b82f6" }}>
-                      <span className="muted" style={{ fontSize: 11, display: "block" }}>💳 Carte / TPE</span>
-                      <strong style={{ fontSize: "var(--text-base)", color: "#2563eb" }}>
-                        {formatMoney(cashJournal.summary.total_card, cashJournal.currency_code, minor, i18n.language)}
-                      </strong>
-                    </div>
-
-                    <div className="card" style={{ padding: "10px", background: "rgba(140, 107, 184, 0.15)", borderColor: "var(--accent)" }}>
-                      <span className="muted" style={{ fontSize: 11, display: "block" }}>🏷️ Total Ventes ({cashJournal.summary.total_sales_count})</span>
-                      <strong style={{ fontSize: "var(--text-base)", color: "var(--accent)" }}>
-                        {formatMoney(cashJournal.summary.total_amount, cashJournal.currency_code, minor, i18n.language)}
-                      </strong>
-                    </div>
+                    <span style={{ fontSize: 20 }}>🧑‍✈️</span>
+                    <span>Poste Conducteur</span>
                   </div>
 
-                  {/* Tableau des ventes du guichet */}
-                  <div style={{ overflowX: "auto" }}>
-                    <table className="table" style={{ width: "100%", fontSize: "var(--text-xs)" }}>
-                      <thead>
-                        <tr>
-                          <th>Réf</th>
-                          <th>Passager</th>
-                          <th>Siège</th>
-                          <th>Trajet</th>
-                          <th>Mode Paiement</th>
-                          <th>Montant</th>
-                          <th>Heure</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cashJournal.sales.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 16 }}>
-                              Aucune vente guichet enregistrée sur les dernières 24h.
-                            </td>
-                          </tr>
-                        ) : (
-                          cashJournal.sales.map((sl: any) => (
-                            <tr key={sl.id}>
-                              <td className="mono">{sl.reference}</td>
-                              <td><strong>{sl.passenger_name || "Client guichet"}</strong></td>
-                              <td>#{sl.seat_no ?? "—"}</td>
-                              <td>{sl.origin && sl.destination ? `${sl.origin} → ${sl.destination}` : "—"}</td>
-                              <td>
-                                <span className="badge" style={{ fontSize: 10 }}>
-                                  {sl.provider === "cash" ? "💵 Espèces" : sl.provider === "card" ? "💳 Carte" : `📱 ${sl.provider}`}
-                                </span>
-                              </td>
-                              <td><strong>{formatMoney(sl.amount, sl.currency_code, minor, i18n.language)}</strong></td>
-                              <td className="muted">{new Date(sl.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.1em",
+                      color: "var(--muted)",
+                      fontWeight: 800,
+                    }}
+                  >
+                    ▲ Avant de l'autocar
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      background: "var(--bg)",
+                      padding: "6px 12px",
+                      borderRadius: 10,
+                      border: "1px solid var(--border)",
+                      fontSize: "0.9rem",
+                    }}
+                  >
+                    <span>🚪</span>
+                    <span>Porte d'accès</span>
                   </div>
                 </div>
-              )}
+
+                {/* Sièges organisés par rangées avec allée centrale */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {(() => {
+                    const left = manifest.layout.seats_per_row[0] ?? 2;
+                    const right = manifest.layout.seats_per_row[1] ?? 2;
+                    const rowsMap = new Map<number, typeof filteredSeats>();
+                    filteredSeats.forEach((s) => {
+                      rowsMap.set(s.row_no, [...(rowsMap.get(s.row_no) ?? []), s]);
+                    });
+                    const sorted = [...rowsMap.entries()].sort((a, b) => a[0] - b[0]);
+
+                    return sorted.map(([rowNo, rowSeats]) => (
+                      <div
+                        key={rowNo}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: `repeat(${left}, 1fr) 36px repeat(${right}, 1fr)`,
+                          gap: 8,
+                          alignItems: "stretch",
+                        }}
+                      >
+                        {rowSeats.map((s) => {
+                          const col = s.col_no <= left ? s.col_no : s.col_no + 1;
+                          const { ticket, isOccupied, isSelected } = s;
+
+                          if (isOccupied && ticket) {
+                            return (
+                              <div
+                                key={s.id}
+                                style={{
+                                  gridColumn: col,
+                                  background: "rgba(30, 41, 59, 0.6)",
+                                  border: "1px solid rgba(59, 130, 246, 0.4)",
+                                  borderRadius: 12,
+                                  padding: "8px 6px",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  justifyContent: "center",
+                                  alignItems: "center",
+                                  textAlign: "center",
+                                  minHeight: 70,
+                                }}
+                                title={`${ticket.passenger_name} · Siège #${s.seat_no}`}
+                              >
+                                <span className="mono" style={{ fontWeight: 800, fontSize: "1.1rem", color: "#60a5fa" }}>
+                                  #{s.seat_no}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: "0.82rem",
+                                    fontWeight: 700,
+                                    color: "#f1f5f9",
+                                    lineHeight: 1.2,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    maxWidth: "100%",
+                                  }}
+                                >
+                                  {ticket.passenger_name.split(" ")[0]}
+                                </span>
+                                <span className="badge" style={{ fontSize: "0.68rem", padding: "1px 4px", marginTop: 2 }}>
+                                  {ticket.status === "boarded" ? "À bord" : "Payé"}
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => {
+                                setWalkIn((prev) => ({ ...prev, seat_id: s.id }));
+                                document.getElementById("desk-cash-panel")?.scrollIntoView({ behavior: "smooth" });
+                              }}
+                              style={{
+                                gridColumn: col,
+                                background: isSelected
+                                  ? "linear-gradient(135deg, rgba(140, 107, 184, 0.4), rgba(16, 185, 129, 0.3))"
+                                  : "rgba(16, 185, 129, 0.08)",
+                                border: isSelected ? "2px solid var(--accent)" : "1.5px dashed #10b981",
+                                borderRadius: 12,
+                                padding: "8px 6px",
+                                display: "flex",
+                                flexDirection: "column",
+                                justifyContent: "center",
+                                alignItems: "center",
+                                cursor: "pointer",
+                                minHeight: 70,
+                                boxShadow: isSelected ? "0 0 20px rgba(140, 107, 184, 0.6)" : "none",
+                                transition: "all 0.2s ease",
+                              }}
+                            >
+                              <span className="mono" style={{ fontWeight: 800, fontSize: "1.1rem", color: "#10b981" }}>
+                                #{s.seat_no}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: "0.82rem",
+                                  fontWeight: 700,
+                                  color: isSelected ? "var(--accent)" : "#10b981",
+                                }}
+                              >
+                                {isSelected ? "✓ Choisi" : "Libre"}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ));
+                  })()}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 18,
+                    paddingTop: 10,
+                    borderTop: "1px dashed var(--border)",
+                    textAlign: "center",
+                    fontSize: 11,
+                    color: "var(--muted)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.1em",
+                  }}
+                >
+                  ▼ Arrière du véhicule (Issue de secours)
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* ==================== COLONNE DROITE : GUICHET ENCAISSEMENT ESPÈCES (ZONE RÉSERVÉE) ==================== */}
+          <section id="desk-cash-panel" className="desk-cash-panel">
+            <div className="desk-cash-header">
+              <span className="badge" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.4)" }}>
+                💵 Guichet Secrétaire — Zone Vente & Encaissement
+              </span>
+              <h3 className="desk-cash-title">
+                <span>🎫</span> Vente Directe en Espèces
+              </h3>
+              <p className="muted" style={{ margin: "4px 0 0", fontSize: "0.92rem" }}>
+                Enregistrez le client qui se présente au guichet, encaissez les espèces et éditez son billet immédiatement.
+              </p>
             </div>
-          </>
+
+            {/* Bannière du siège sélectionné */}
+            {selectedSeatObj ? (
+              <div className="desk-selected-seat-banner desk-selected-seat-banner--active">
+                <div>
+                  <strong style={{ fontSize: "1.12rem", display: "block" }}>
+                    Siège Sélectionné : <span className="mono" style={{ color: "var(--accent)" }}>#{selectedSeatObj.seat_no}</span> ({selectedSeatObj.seat_class})
+                  </strong>
+                  <span className="muted" style={{ fontSize: "0.85rem" }}>
+                    Trajet : {current.origin} ➔ {current.destination} ({formatTime(current.departs_at, tz, i18n.language)})
+                  </span>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <span className="muted" style={{ fontSize: "0.8rem", display: "block" }}>Tarif à encaisser</span>
+                  <strong className="mono" style={{ fontSize: "1.3rem", color: "#10b981" }}>
+                    {formatMoney(manifest.price, manifest.currency_code, minor, i18n.language)}
+                  </strong>
+                </div>
+              </div>
+            ) : (
+              <div className="desk-selected-seat-banner desk-selected-seat-banner--empty">
+                <span>👈 Cliquez sur une place libre (verte) à gauche pour commencer l'enregistrement.</span>
+              </div>
+            )}
+
+            {/* Formulaire d'enregistrement */}
+            <form onSubmit={handleSellWalkIn} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div className="desk-form-field">
+                <label htmlFor="walkin-name">Nom complet du passager *</label>
+                <input
+                  id="walkin-name"
+                  className="desk-form-input"
+                  required
+                  placeholder="Ex : Paul-Alain Mbida"
+                  value={walkIn.passenger_name}
+                  onChange={(e) => setWalkIn({ ...walkIn, passenger_name: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div className="desk-form-field">
+                  <label htmlFor="walkin-phone">Téléphone</label>
+                  <input
+                    id="walkin-phone"
+                    className="desk-form-input"
+                    type="tel"
+                    placeholder="+237 6..."
+                    value={walkIn.phone}
+                    onChange={(e) => setWalkIn({ ...walkIn, phone: e.target.value })}
+                  />
+                </div>
+
+                <div className="desk-form-field">
+                  <label htmlFor="walkin-id">N° CNI / Pièce</label>
+                  <input
+                    id="walkin-id"
+                    className="desk-form-input"
+                    placeholder="10928374..."
+                    value={walkIn.id_number}
+                    onChange={(e) => setWalkIn({ ...walkIn, id_number: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 10 }}>
+                <div className="desk-form-field">
+                  <label htmlFor="walkin-luggage">Bagages (kg)</label>
+                  <input
+                    id="walkin-luggage"
+                    className="desk-form-input"
+                    type="number"
+                    min={0}
+                    step="0.5"
+                    placeholder="0 kg"
+                    value={walkIn.luggage_weight_kg}
+                    onChange={(e) => setWalkIn({ ...walkIn, luggage_weight_kg: e.target.value })}
+                  />
+                </div>
+
+                <div className="desk-form-field">
+                  <label htmlFor="walkin-mode">Mode de paiement</label>
+                  <select
+                    id="walkin-mode"
+                    className="desk-form-input"
+                    value={walkIn.payment_method}
+                    onChange={(e) => setWalkIn({ ...walkIn, payment_method: e.target.value })}
+                  >
+                    <option value="cash">💵 Espèces (Cash guichet)</option>
+                    <option value="orange_money">🍊 Orange Money</option>
+                    <option value="mtn_momo">💛 MTN Mobile Money</option>
+                    <option value="wave">🌊 Wave</option>
+                    <option value="card">💳 Carte Bancaire</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* CALCULATEUR DE MONNAIE POUR ESPÈCES (ASSISTANT RENDU DE CAISSE) */}
+              {walkIn.payment_method === "cash" && selectedSeatObj && (
+                <div className="desk-change-calc">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <label htmlFor="walkin-tendered" style={{ fontSize: "0.92rem", fontWeight: 700 }}>
+                      💵 Montant remis par le client (espèces) :
+                    </label>
+                    <input
+                      id="walkin-tendered"
+                      type="number"
+                      min={0}
+                      step={500}
+                      placeholder={`${manifest.price}`}
+                      value={cashTendered}
+                      onChange={(e) => setCashTendered(e.target.value)}
+                      style={{
+                        width: 140,
+                        padding: "6px 10px",
+                        fontSize: "1.05rem",
+                        borderRadius: 8,
+                        border: "1px solid #10b981",
+                        background: "var(--bg)",
+                        color: "var(--text)",
+                        textAlign: "right",
+                        fontWeight: 700,
+                      }}
+                    />
+                  </div>
+
+                  {tenderedAmount > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                      <span style={{ fontSize: "0.9rem", color: "var(--muted)" }}>Rendu de monnaie :</span>
+                      {changeDue >= 0 ? (
+                        <strong className="mono" style={{ fontSize: "1.2rem", color: "#10b981" }}>
+                          🟢 Rendre {formatMoney(changeDue, manifest.currency_code, minor, i18n.language)}
+                        </strong>
+                      ) : (
+                        <strong className="mono" style={{ fontSize: "1.1rem", color: "#ef4444" }}>
+                          ⚠️ Manque {formatMoney(Math.abs(changeDue), manifest.currency_code, minor, i18n.language)}
+                        </strong>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* BOUTON D'ENCAISSEMENT GÉANT & VIBRANT */}
+              <button
+                type="submit"
+                className="desk-btn-cash-submit"
+                disabled={!walkIn.seat_id || !walkIn.passenger_name.trim()}
+              >
+                <span>✓</span>
+                <span>
+                  Encaisser en Espèces ({formatMoney(manifest.price, manifest.currency_code, minor, i18n.language)}) & Émettre le Billet
+                </span>
+              </button>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {/* ==================== 3. MODAL DE REÇU & BILLET ÉMIS AVEC SUCCÈS ==================== */}
+      <AnimatePresence>
+        {issuedReceipt && (
+          <div className="desk-receipt-overlay" onClick={() => setIssuedReceipt(null)}>
+            <motion.div
+              className="desk-receipt-card"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={{ textAlign: "center" }}>
+                <span style={{ fontSize: 48 }}>🎉</span>
+                <h3 style={{ margin: "6px 0 2px", fontSize: "1.45rem", color: "#10b981" }}>
+                  Billet Émis avec Succès !
+                </h3>
+                <span className="muted" style={{ fontSize: "0.95rem" }}>
+                  Encaissement validé · Siège attribué
+                </span>
+              </div>
+
+              <div
+                style={{
+                  background: "var(--bg)",
+                  border: "1px dashed var(--border)",
+                  borderRadius: 14,
+                  padding: 16,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="muted">Numéro de Billet :</span>
+                  <strong className="mono" style={{ fontSize: "1.2rem", color: "var(--accent)" }}>
+                    {issuedReceipt.reference}
+                  </strong>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="muted">Passager :</span>
+                  <strong style={{ fontSize: "1.08rem" }}>{issuedReceipt.passenger_name}</strong>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="muted">Siège Attribué :</span>
+                  <span className="badge mono" style={{ fontSize: "1.1rem", background: "#10b981", color: "#ffffff", padding: "4px 10px" }}>
+                    Siège #{issuedReceipt.seat_no}
+                  </span>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="muted">Ligne & Trajet :</span>
+                  <strong>{issuedReceipt.origin} ➔ {issuedReceipt.destination}</strong>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="muted">Montant Encaissé :</span>
+                  <strong className="mono" style={{ fontSize: "1.25rem", color: "#10b981" }}>
+                    {formatMoney(issuedReceipt.amount, issuedReceipt.currency_code, minor, i18n.language)} ({issuedReceipt.payment_method.toUpperCase()})
+                  </strong>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  type="button"
+                  className="btn btn--outline"
+                  style={{ flex: 1, fontSize: "1rem" }}
+                  onClick={() => window.print()}
+                >
+                  🖨️ Imprimer Reçu
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ flex: 1, background: "#10b981", color: "#ffffff", fontSize: "1rem", fontWeight: 700 }}
+                  onClick={() => setIssuedReceipt(null)}
+                >
+                  ✓ Passager Suivant
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ==================== 4. JOURNAL DE CAISSE DU GUICHER (RÉSUMÉ QUOTIDIEN) ==================== */}
+      <section className="card" style={{ marginTop: 12, padding: "18px 22px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <h4 style={{ margin: 0, fontSize: "1.15rem", display: "flex", alignItems: "center", gap: 8 }}>
+              <span>💼</span> Journal de Caisse & Recettes Guichet
+            </h4>
+            <span className="muted" style={{ fontSize: "0.88rem" }}>
+              Suivez le cumul des encaissements en espèces et paiements au comptoir en direct.
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn--outline"
+            onClick={loadCashJournal}
+            style={{ fontSize: "0.92rem", fontWeight: 700 }}
+          >
+            {showJournal ? "🔄 Actualiser la caisse" : "📊 Consulter mon journal de caisse"}
+          </button>
+        </div>
+
+        {showJournal && cashJournal && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
+            {/* KPI Cards */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 12,
+              }}
+            >
+              <div className="card" style={{ padding: "14px", background: "rgba(16, 185, 129, 0.1)", borderColor: "#10b981" }}>
+                <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>💵 Espèces (Cash)</span>
+                <strong style={{ fontSize: "1.25rem", color: "#059669" }}>
+                  {formatMoney(cashJournal.summary.total_cash, cashJournal.currency_code, minor, i18n.language)}
+                </strong>
+              </div>
+
+              <div className="card" style={{ padding: "14px", background: "rgba(245, 158, 11, 0.1)", borderColor: "#f59e0b" }}>
+                <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>📱 Mobile Money</span>
+                <strong style={{ fontSize: "1.25rem", color: "#d97706" }}>
+                  {formatMoney(cashJournal.summary.total_momo, cashJournal.currency_code, minor, i18n.language)}
+                </strong>
+              </div>
+
+              <div className="card" style={{ padding: "14px", background: "rgba(59, 130, 246, 0.1)", borderColor: "#3b82f6" }}>
+                <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>💳 Carte / TPE</span>
+                <strong style={{ fontSize: "1.25rem", color: "#2563eb" }}>
+                  {formatMoney(cashJournal.summary.total_card, cashJournal.currency_code, minor, i18n.language)}
+                </strong>
+              </div>
+
+              <div className="card" style={{ padding: "14px", background: "rgba(140, 107, 184, 0.15)", borderColor: "var(--accent)" }}>
+                <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>
+                  🏷️ Total Ventes ({cashJournal.summary.total_sales_count})
+                </span>
+                <strong style={{ fontSize: "1.25rem", color: "var(--accent)" }}>
+                  {formatMoney(cashJournal.summary.total_amount, cashJournal.currency_code, minor, i18n.language)}
+                </strong>
+              </div>
+            </div>
+
+            {/* Tableau des ventes du guichet */}
+            <div style={{ overflowX: "auto" }}>
+              <table className="table" style={{ width: "100%", fontSize: "0.92rem" }}>
+                <thead>
+                  <tr>
+                    <th>Réf</th>
+                    <th>Passager</th>
+                    <th>Siège</th>
+                    <th>Trajet</th>
+                    <th>Mode Paiement</th>
+                    <th>Montant</th>
+                    <th>Heure</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cashJournal.sales.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>
+                        Aucune vente guichet enregistrée sur les dernières 24h.
+                      </td>
+                    </tr>
+                  ) : (
+                    cashJournal.sales.map((sl: any) => (
+                      <tr key={sl.id}>
+                        <td className="mono">{sl.reference}</td>
+                        <td>
+                          <strong>{sl.passenger_name || "Client guichet"}</strong>
+                        </td>
+                        <td>
+                          <span className="badge mono">#{sl.seat_no ?? "—"}</span>
+                        </td>
+                        <td>{sl.origin && sl.destination ? `${sl.origin} ➔ ${sl.destination}` : "—"}</td>
+                        <td>
+                          <span className="badge" style={{ fontSize: "0.8rem" }}>
+                            {sl.provider === "cash"
+                              ? "💵 Espèces"
+                              : sl.provider === "card"
+                                ? "💳 Carte"
+                                : `📱 ${sl.provider}`}
+                          </span>
+                        </td>
+                        <td>
+                          <strong className="mono" style={{ color: "#10b981" }}>
+                            {formatMoney(sl.amount, sl.currency_code, minor, i18n.language)}
+                          </strong>
+                        </td>
+                        <td className="muted">
+                          {new Date(sl.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </section>
     </div>

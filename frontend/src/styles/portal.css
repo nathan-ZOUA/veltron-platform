@@ -567,3 +567,437 @@
     border: 1px solid #999;
   }
 }
+
+/* ==========================================================================
+   GUICHET SECRÉTAIRE & VENTE EN ESPÈCES (FULL WIDTH & HIGH READABILITY)
+   ========================================================================== */
+
+.container--desk-wide {
+  max-width: 98vw !important;
+  width: min(100% - 16px, 1820px) !important;
+  padding-inline: clamp(8px, 1.5vw, 24px) !important;
+}
+
+.desk-v2 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  width: 100%;
+  font-size: 1.05rem;
+}
+
+/* Horaires des Départs Strip */
+.desk-timetable-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+.desk-timetable-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.desk-timetable-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.desk-timetable-strip {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding: 4px 2px 12px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.desk-timetable-card {
+  flex: 0 0 290px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 2px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.desk-timetable-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+  box-shadow: 0 6px 20px rgba(140, 107, 184, 0.2);
+}
+
+.desk-timetable-card.is-active {
+  border-color: var(--accent);
+  background: linear-gradient(145deg, rgba(140, 107, 184, 0.16), rgba(22, 22, 32, 0.8));
+  box-shadow: 0 0 25px rgba(140, 107, 184, 0.35), 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.desk-timetable-card.is-active::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #10b981, var(--accent));
+}
+
+.desk-timetable-card__time {
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.desk-timetable-card__route {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desk-timetable-card__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+/* Two-column layout for Secretary Desk */
+.desk-main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 430px;
+  gap: 24px;
+  align-items: start;
+  width: 100%;
+}
+
+@media (max-width: 1120px) {
+  .desk-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Seats Board Panel */
+.desk-seats-board {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+}
+
+.desk-seats-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+}
+
+.desk-seats-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  margin: 0;
+}
+
+.desk-seats-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.desk-stat-badge {
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.desk-stat-badge--free {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.desk-stat-badge--occupied {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* Grid of Seats with Passenger Names */
+.desk-seat-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.desk-seat-card {
+  padding: 14px;
+  border-radius: var(--radius-md);
+  border: 2px solid var(--border);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  text-align: left;
+}
+
+/* Occupied seat styling */
+.desk-seat-card--occupied {
+  background: rgba(30, 41, 59, 0.45);
+  border-color: rgba(59, 130, 246, 0.35);
+  opacity: 0.95;
+}
+
+.desk-seat-card--occupied .desk-seat-badge {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.desk-seat-card__passenger-name {
+  font-size: 1.08rem;
+  font-weight: 800;
+  color: #f1f5f9;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.desk-seat-card__meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Free seat styling */
+.desk-seat-card--free {
+  cursor: pointer;
+  background: rgba(16, 185, 129, 0.05);
+  border: 2px dashed rgba(16, 185, 129, 0.45);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.12);
+}
+
+.desk-seat-card--free:hover {
+  transform: translateY(-3px) scale(1.02);
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.35);
+}
+
+.desk-seat-card--free .desk-seat-badge {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.desk-seat-card--free.is-selected {
+  border: 2px solid var(--accent);
+  background: linear-gradient(135deg, rgba(140, 107, 184, 0.25), rgba(16, 185, 129, 0.15));
+  box-shadow: 0 0 25px rgba(140, 107, 184, 0.6), 0 0 10px rgba(16, 185, 129, 0.4);
+  animation: deskSeatSelectPulse 2s infinite ease-in-out;
+}
+
+@keyframes deskSeatSelectPulse {
+  0% { box-shadow: 0 0 18px rgba(140, 107, 184, 0.4); }
+  50% { box-shadow: 0 0 30px rgba(140, 107, 184, 0.8), 0 0 15px rgba(16, 185, 129, 0.5); }
+  100% { box-shadow: 0 0 18px rgba(140, 107, 184, 0.4); }
+}
+
+.desk-seat-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 1.15rem;
+}
+
+/* Zone Réservée: Cash Counter Panel */
+.desk-cash-panel {
+  position: sticky;
+  top: calc(var(--header-height, 70px) + 20px);
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(140, 107, 184, 0.2), 0 4px 20px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  backdrop-filter: blur(14px);
+}
+
+.desk-cash-header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.desk-cash-title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  margin: 4px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.desk-selected-seat-banner {
+  padding: 14px 18px;
+  border-radius: var(--radius-md);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.desk-selected-seat-banner--active {
+  background: linear-gradient(135deg, rgba(140, 107, 184, 0.2), rgba(16, 185, 129, 0.15));
+  border: 1px solid var(--accent);
+}
+
+.desk-selected-seat-banner--empty {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.desk-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.desk-form-field label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.desk-form-input {
+  width: 100%;
+  font-size: 1.05rem !important;
+  padding: 12px 14px !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--border) !important;
+  background: var(--bg) !important;
+  color: var(--text) !important;
+  transition: all 0.2s ease !important;
+}
+
+.desk-form-input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(140, 107, 184, 0.35) !important;
+  outline: none !important;
+}
+
+.desk-change-calc {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.desk-btn-cash-submit {
+  width: 100%;
+  padding: 16px 20px !important;
+  font-size: 1.18rem !important;
+  font-weight: 800 !important;
+  border-radius: 12px !important;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.35) !important;
+  cursor: pointer;
+  transition: all 0.25s ease !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.desk-btn-cash-submit:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.01) !important;
+  box-shadow: 0 10px 30px rgba(16, 185, 129, 0.5) !important;
+}
+
+.desk-btn-cash-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Receipt Modal */
+.desk-receipt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.desk-receipt-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--surface);
+  border: 2px solid #10b981;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 0 35px rgba(16, 185, 129, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
