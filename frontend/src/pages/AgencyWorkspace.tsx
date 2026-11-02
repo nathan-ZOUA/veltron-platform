@@ -2378,8 +2378,16 @@ export default function AgencyWorkspace() {
 
           {role === "owner" && (
             <aside className="side-stack">
-              <form className="card form-grid" onSubmit={createStaffAccount}>
-                <h3 className="subheading" style={{ margin: 0 }}>Ajouter un compte isolé</h3>
+              <form className="card form-grid" onSubmit={createStaffAccount} style={{ padding: "var(--space-4)", borderRadius: 16 }}>
+                <div>
+                  <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)" }}>
+                    👥 Nouveau Collaborateur
+                  </span>
+                  <h3 className="subheading" style={{ margin: "6px 0 2px" }}>Ajouter un compte isolé</h3>
+                  <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                    Créez un compte dédié et sécurisé avec matricule pour un membre de votre agence.
+                  </p>
+                </div>
                 <label className="field">
                   <span className="field__label">Poste de base (permissions système)</span>
                   <select

@@ -160,14 +160,24 @@ export default function AgencyLogin() {
         {step === "credentials" ? (
           <motion.form
             className="form-grid auth__form"
-            style={{ width: "min(100%, 500px)" }}
+            style={{ width: "min(100%, 480px)", display: "flex", flexDirection: "column", gap: 16 }}
             onSubmit={initiate}
             initial={{ opacity: 0, x: 28 }}
             animate={{ opacity: 1, x: 0 }}
           >
-            <h1 className="display display-xl">Connexion à mon agence</h1>
+            <div>
+              <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)" }}>
+                🏢 Espace Agence & Personnel
+              </span>
+              <h1 className="heading display-md" style={{ margin: "8px 0 4px" }}>
+                Connexion à mon Agence
+              </h1>
+              <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                Entrez le code de votre agence et vos identifiants collaborateurs (email ou matricule).
+              </p>
+            </div>
 
-            <div className="search-grid">
+            <div className="search-grid" style={{ gap: 12 }}>
               <label className="field">
                 <span className="field__label">ID Agence (généré auto)</span>
                 <input
@@ -196,7 +206,7 @@ export default function AgencyLogin() {
               <input
                 className="input"
                 required
-                placeholder="prenom.nom@mon-agence.com ou Matricule (ex. AG1-SEC-02)"
+                placeholder="prenom.nom@mon-agence.com ou Matricule"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
@@ -208,13 +218,20 @@ export default function AgencyLogin() {
                 className="input"
                 type="password"
                 required
+                placeholder="••••••••"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
               />
             </label>
 
-            <button type="submit" className="btn btn--lg" disabled={busy}>
-              {busy ? "Vérification…" : "Recevoir mon code de validation (5 chiffres) →"}
+            {error && (
+              <p className="error" role="alert" style={{ margin: "2px 0" }}>
+                {error}
+              </p>
+            )}
+
+            <button type="submit" className="btn btn--lg" disabled={busy} style={{ marginTop: 4, height: 48, fontSize: "var(--text-sm)", fontWeight: 700 }}>
+              {busy ? "Vérification en cours…" : "Recevoir mon code de validation (5 chiffres) →"}
             </button>
 
             <div style={{ textAlign: "center", padding: "4px 0" }}>
@@ -223,22 +240,17 @@ export default function AgencyLogin() {
               </Link>
             </div>
 
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-
-            <div className="demo-note">
-              <strong>Tester les 6 comptes isolés d’Équateur Voyages (AG-EQT001) :</strong>
-              <div className="chips" style={{ marginTop: 8 }}>
+            {/* Comptes de test sous accordéon épuré (ne surcharge jamais la page) */}
+            <details className="demo-accordion">
+              <summary>💡 Tester avec un compte pré-configuré (Démonstration)</summary>
+              <div className="chips" style={{ marginTop: 10 }}>
                 {DEMO_ACCOUNTS.map((acc) => (
                   <button key={acc.email} type="button" className="chip" onClick={() => fillDemo(acc.email)}>
                     {acc.label}
                   </button>
                 ))}
               </div>
-            </div>
+            </details>
           </motion.form>
         ) : (
           <motion.form
