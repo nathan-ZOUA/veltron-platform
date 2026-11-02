@@ -96,6 +96,9 @@ export default function BoardingCallWorkspace() {
 
   // Mode d'action avant de cliquer sur les sièges : 'boarded' (À bord) ou 'absent' (Absent)
   const [callMode, setCallMode] = useState<"boarded" | "absent">("boarded");
+  // Mode d'affichage : Plan graphique ou Liste d'appel textuelle
+  const [viewMode, setViewMode] = useState<"seats" | "list">("seats");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Siège absent sélectionné pour remplacement immédiat
   const [absentSeatModal, setAbsentSeatModal] = useState<ManifestSeat | null>(null);
@@ -297,8 +300,78 @@ export default function BoardingCallWorkspace() {
     }
   }
 
+  // Action directe sur un passager depuis la liste (À bord ou Absent)
+  async function handleDirectSeatAction(seat: ManifestSeat, action: "boarded" | "absent") {
+    if (!selectedTripId) return;
+    setNotice("");
+    setError("");
+
+    if (action === "absent" && seat.state === "absent") {
+      setAbsentSeatModal(seat);
+      loadCandidates(selectedTripId);
+      return;
+    }
+
+    try {
+      const res = await api<{ ok: boolean; action: string; seat_id: number; passenger_name?: string }>(
+        `/boarding/trips/${selectedTripId}/seat-click`,
+        {
+          body: {
+            seat_id: seat.id,
+            target_status: action,
+          },
+          realm: "agency",
+        }
+      );
+
+      if (action === "boarded") {
+        setNotice(`✓ Siège #${seat.seat_no} (${res.passenger_name || "Passager"}) validé À BORD. Statut passager synchronisé en temps réel !`);
+      } else {
+        setNotice(`⚠️ Siège #${seat.seat_no} (${res.passenger_name || "Passager"}) signalé ABSENT.`);
+        setAbsentSeatModal(seat);
+        loadCandidates(selectedTripId);
+      }
+
+      await loadManifest(selectedTripId);
+      await loadTrips();
+    } catch (err: any) {
+      setError(err?.message || "Action impossible sur ce passager.");
+    }
+  }
+
+  // Clôturer le voyage à destination (libération des sièges et archivage dans l'historique)
+  async function handleCompleteTrip() {
+    if (!selectedTripId) return;
+    if (!confirm("Confirmer l'arrivée à destination de ce voyage ? Les places seront libérées et les billets seront archivés dans l'historique des voyageurs.")) return;
+
+    try {
+      const res = await api<{ ok: boolean; message: string }>(`/boarding/trips/${selectedTripId}/complete`, {
+        body: {},
+        realm: "agency",
+      });
+      setNotice(res.message);
+      await loadManifest(selectedTripId);
+      await loadTrips();
+    } catch (err: any) {
+      setError(err?.message || "Impossible de clôturer le voyage.");
+    }
+  }
+
   const selectedTrip = useMemo(() => trips.find((t) => t.id === selectedTripId), [trips, selectedTripId]);
   const isBusCompletelyFull = manifest?.summary?.is_full ?? false;
+
+  // Filtrer les passagers pour la vue Liste
+  const filteredSeats = useMemo(() => {
+    if (!manifest) return [];
+    if (!searchQuery.trim()) return manifest.seats;
+    const q = searchQuery.toLowerCase().trim();
+    return manifest.seats.filter(
+      (st) =>
+        st.seat_no.toString().includes(q) ||
+        (st.ticket?.passenger_name && st.ticket.passenger_name.toLowerCase().includes(q)) ||
+        (st.ticket?.phone && st.ticket.phone.includes(q))
+    );
+  }, [manifest, searchQuery]);
 
   return (
     <div className="boarding-workspace" style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
@@ -444,14 +517,58 @@ export default function BoardingCallWorkspace() {
                   🔴 <strong style={{ color: "#ef4444" }}>{manifest.summary.absent_count}</strong> absents ·{" "}
                   ⚪ <strong>{manifest.summary.valid_count}</strong> en attente
                 </span>
-                {selectedTrip.status !== "departed" && (
+                {selectedTrip.status !== "departed" ? (
                   <button type="button" className="btn btn--outline" onClick={handleDepartBus} style={{ fontSize: "var(--text-xs)" }}>
-                    Marquer départ
+                    🚀 Marquer départ
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={handleCompleteTrip}
+                    style={{ background: "#2563eb", color: "#fff", border: 0, fontSize: "var(--text-xs)", fontWeight: 700 }}
+                  >
+                    🏁 Arrivée & Clôturer le voyage
                   </button>
                 )}
               </div>
             </div>
           )}
+
+          {/* Onglets de bascule : Plan graphique vs Liste d'appel */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className={`btn ${viewMode === "seats" ? "btn--primary" : "btn--ghost"}`}
+                onClick={() => setViewMode("seats")}
+                style={{ fontSize: "var(--text-xs)", fontWeight: 700 }}
+              >
+                🚌 Plan Graphique des Sièges
+              </button>
+              <button
+                type="button"
+                className={`btn ${viewMode === "list" ? "btn--primary" : "btn--ghost"}`}
+                onClick={() => setViewMode("list")}
+                style={{ fontSize: "var(--text-xs)", fontWeight: 700 }}
+              >
+                📋 Liste d'Appel des Passagers ({manifest.seats.filter((s) => s.ticket).length})
+              </button>
+            </div>
+
+            {viewMode === "list" && (
+              <div style={{ minWidth: 260, flex: 1, maxWidth: 380 }}>
+                <input
+                  type="search"
+                  className="input"
+                  placeholder="🔍 Rechercher passager, n° siège, téléphone..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ fontSize: "var(--text-xs)", padding: "6px 12px" }}
+                />
+              </div>
+            )}
+          </div>
 
           {/* BARRE DE CHOIX DU MODE D'APPEL AVANT DE CLIQUER */}
           <div
@@ -473,8 +590,8 @@ export default function BoardingCallWorkspace() {
               </span>
               <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
                 {callMode === "boarded"
-                  ? "👉 Mode « À BORD » ACTIF : Chaque siège cliqué devient VERT (Passager présent dans le bus)."
-                  : "👉 Mode « ABSENT » ACTIF : Chaque siège cliqué devient ROUGE (Passager manquant). Un volet de réassignation s'ouvre pour le remplacer."}
+                  ? "👉 Mode « À BORD » ACTIF : Chaque clic valide le passager, son siège devient VERT et son billet passe en « Embarqué »."
+                  : "👉 Mode « ABSENT » ACTIF : Chaque clic signale le passager ABSENT (ROUGE) et ouvre le remplacement immédiat."}
               </span>
             </div>
 
@@ -521,114 +638,275 @@ export default function BoardingCallWorkspace() {
             </div>
           </div>
 
-          {/* PLAN VISUEL DES SIÈGES DU BUS */}
-          <div className="card" style={{ padding: "var(--space-4)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-3)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 22 }}>🚌</span>
-                <strong>Disposition des sièges du bus ({manifest.trip.plate})</strong>
+          {/* VUE 1 : PLAN VISUEL DES SIÈGES DU BUS */}
+          {viewMode === "seats" && (
+            <div className="card" style={{ padding: "var(--space-4)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-3)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 22 }}>🚌</span>
+                  <strong>Disposition des sièges du bus ({manifest.trip.plate})</strong>
+                </div>
+                <div style={{ display: "flex", gap: 16, fontSize: "var(--text-xs)" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: "#10b981", display: "inline-block" }} />
+                    À bord (Vert)
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: "#ef4444", display: "inline-block" }} />
+                    Absent (Rouge - Clic pour remplacer)
+                  </span>
+                  <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: "var(--surface-hover)", border: "1px solid var(--border)", display: "inline-block" }} />
+                    En attente
+                  </span>
+                </div>
               </div>
-              <div style={{ display: "flex", gap: 16, fontSize: "var(--text-xs)" }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: "#10b981", display: "inline-block" }} />
-                  À bord (Vert)
-                </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: "#ef4444", display: "inline-block" }} />
-                  Absent (Rouge - Clic pour remplacer)
-                </span>
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: "var(--surface-hover)", border: "1px solid var(--border)", display: "inline-block" }} />
-                  En attente
-                </span>
-              </div>
-            </div>
 
-            {/* Grille des sièges */}
-            <div
-              className="boarding-seat-grid"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
-                gap: 10,
-              }}
-            >
-              {manifest.seats.map((st) => {
-                const isBoarded = st.state === "boarded";
-                const isAbsent = st.state === "absent";
-                const isUnbooked = st.state === "unbooked";
+              {/* Grille des sièges */}
+              <div
+                className="boarding-seat-grid"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
+                  gap: 10,
+                }}
+              >
+                {manifest.seats.map((st) => {
+                  const isBoarded = st.state === "boarded";
+                  const isAbsent = st.state === "absent";
+                  const isUnbooked = st.state === "unbooked";
 
-                let bg = "var(--surface)";
-                let borderColor = "var(--border)";
-                let textColor = "var(--text)";
-                let statusIcon = "⚪";
+                  let bg = "var(--surface)";
+                  let borderColor = "var(--border)";
+                  let textColor = "var(--text)";
+                  let statusIcon = "⚪";
 
-                if (isBoarded) {
-                  bg = "rgba(16, 185, 129, 0.15)";
-                  borderColor = "#10b981";
-                  textColor = "#059669";
-                  statusIcon = "🟢 ✓";
-                } else if (isAbsent) {
-                  bg = "rgba(239, 68, 68, 0.18)";
-                  borderColor = "#ef4444";
-                  textColor = "#dc2626";
-                  statusIcon = "🔴 ✕";
-                } else if (isUnbooked) {
-                  bg = "transparent";
-                  borderColor = "var(--border-dashed, #94a3b8)";
-                  textColor = "var(--muted)";
-                  statusIcon = "➕";
-                }
+                  if (isBoarded) {
+                    bg = "rgba(16, 185, 129, 0.15)";
+                    borderColor = "#10b981";
+                    textColor = "#059669";
+                    statusIcon = "🟢 ✓";
+                  } else if (isAbsent) {
+                    bg = "rgba(239, 68, 68, 0.18)";
+                    borderColor = "#ef4444";
+                    textColor = "#dc2626";
+                    statusIcon = "🔴 ✕";
+                  } else if (isUnbooked) {
+                    bg = "transparent";
+                    borderColor = "var(--border-dashed, #94a3b8)";
+                    textColor = "var(--muted)";
+                    statusIcon = "➕";
+                  }
 
-                return (
-                  <button
-                    key={st.id}
-                    type="button"
-                    onClick={() => handleSeatClick(st)}
-                    className="card card--interactive"
-                    style={{
-                      padding: "8px 10px",
-                      background: bg,
-                      borderColor: borderColor,
-                      borderWidth: isBoarded || isAbsent ? 2 : 1,
-                      borderStyle: isUnbooked ? "dashed" : "solid",
-                      textAlign: "start",
-                      cursor: "pointer",
-                      position: "relative",
-                      transition: "all 0.15s ease",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                      <strong style={{ fontSize: "var(--text-sm)", color: textColor }}>
-                        Siège #{st.seat_no}
-                      </strong>
-                      <span style={{ fontSize: 11 }}>{statusIcon}</span>
-                    </div>
-
-                    <div
+                  return (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => handleSeatClick(st)}
+                      className="card card--interactive"
                       style={{
-                        fontSize: "var(--text-xs)",
-                        fontWeight: 600,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        color: textColor,
+                        padding: "8px 10px",
+                        background: bg,
+                        borderColor: borderColor,
+                        borderWidth: isBoarded || isAbsent ? 2 : 1,
+                        borderStyle: isUnbooked ? "dashed" : "solid",
+                        textAlign: "start",
+                        cursor: "pointer",
+                        position: "relative",
+                        transition: "all 0.15s ease",
                       }}
                     >
-                      {st.ticket?.passenger_name || (isUnbooked ? "Place libre" : "Passager")}
-                    </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                        <strong style={{ fontSize: "var(--text-sm)", color: textColor }}>
+                          Siège #{st.seat_no}
+                        </strong>
+                        <span style={{ fontSize: 11 }}>{statusIcon}</span>
+                      </div>
 
-                    <div style={{ fontSize: 10, marginTop: 4, display: "flex", justifyContent: "space-between" }} className="muted">
-                      <span>{isBoarded ? "À BORD" : isAbsent ? "ABSENT (Remplacer)" : isUnbooked ? "Libre" : "En attente"}</span>
-                      {st.ticket && (
-                        <span>{st.ticket.luggage_pieces === 0 ? "🎒 Sans sac" : `🧳 ${st.ticket.luggage_pieces}`}</span>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+                      <div
+                        style={{
+                          fontSize: "var(--text-xs)",
+                          fontWeight: 600,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          color: textColor,
+                        }}
+                      >
+                        {st.ticket?.passenger_name || (isUnbooked ? "Place libre" : "Passager")}
+                      </div>
+
+                      <div style={{ fontSize: 10, marginTop: 4, display: "flex", justifyContent: "space-between" }} className="muted">
+                        <span>{isBoarded ? "À BORD" : isAbsent ? "ABSENT (Remplacer)" : isUnbooked ? "Libre" : "En attente"}</span>
+                        {st.ticket && (
+                          <span>{st.ticket.luggage_pieces === 0 ? "🎒 Sans sac" : `🧳 ${st.ticket.luggage_pieces}`}</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* VUE 2 : LISTE D'APPEL DES PASSAGERS */}
+          {viewMode === "list" && (
+            <div className="card" style={{ padding: "var(--space-4)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-3)", flexWrap: "wrap", gap: 8 }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "var(--text-base)" }}>
+                    📋 Appel Nominatif des Passagers & Affectation des Sièges
+                  </h3>
+                  <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                    Cliquez directement sur <strong>« À bord »</strong> devant le nom du voyageur pour faire passer son siège au vert, ou <strong>« Absent »</strong> pour libérer sa place.
+                  </p>
+                </div>
+                <div className="muted" style={{ fontSize: "var(--text-xs)" }}>
+                  {filteredSeats.length} passager(s) affiché(s)
+                </div>
+              </div>
+
+              <div style={{ overflowX: "auto" }}>
+                <table className="table" style={{ width: "100%", fontSize: "var(--text-xs)" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 70 }}>Siège</th>
+                      <th>Passager & Contact</th>
+                      <th>Bagages</th>
+                      <th>Statut Actuel</th>
+                      <th style={{ textAlign: "end", minWidth: 200 }}>Actions Rapides Appel</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredSeats.map((st) => {
+                      const isBoarded = st.state === "boarded";
+                      const isAbsent = st.state === "absent";
+                      const isUnbooked = st.state === "unbooked";
+
+                      return (
+                        <tr
+                          key={st.id}
+                          style={{
+                            background: isBoarded
+                              ? "rgba(16, 185, 129, 0.08)"
+                              : isAbsent
+                              ? "rgba(239, 68, 68, 0.08)"
+                              : "transparent",
+                          }}
+                        >
+                          <td>
+                            <strong
+                              style={{
+                                display: "inline-block",
+                                padding: "3px 7px",
+                                borderRadius: 4,
+                                background: isBoarded ? "#10b981" : isAbsent ? "#ef4444" : "var(--surface-hover)",
+                                color: isBoarded || isAbsent ? "#fff" : "var(--text)",
+                                fontWeight: 700,
+                              }}
+                            >
+                              #{st.seat_no}
+                            </strong>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600, fontSize: "var(--text-sm)" }}>
+                              {st.ticket?.passenger_name || (isUnbooked ? <span className="muted">Non réservé</span> : "Passager")}
+                            </div>
+                            {st.ticket?.phone && <div className="muted" style={{ fontSize: 11 }}>📞 {st.ticket.phone}</div>}
+                          </td>
+                          <td>
+                            {st.ticket ? (
+                              st.ticket.luggage_pieces === 0 ? (
+                                <span className="badge" style={{ background: "rgba(59, 130, 246, 0.12)", color: "#2563eb", fontSize: 10 }}>
+                                  🎒 Sans bagage
+                                </span>
+                              ) : (
+                                <span className="badge" style={{ fontSize: 10 }}>
+                                  🧳 {st.ticket.luggage_pieces} colis
+                                </span>
+                              )
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                          <td>
+                            {isBoarded ? (
+                              <span className="badge" style={{ background: "#10b981", color: "#fff", fontWeight: 700 }}>
+                                🟢 À BORD
+                              </span>
+                            ) : isAbsent ? (
+                              <span className="badge" style={{ background: "#ef4444", color: "#fff", fontWeight: 700 }}>
+                                🔴 ABSENT
+                              </span>
+                            ) : isUnbooked ? (
+                              <span className="badge" style={{ background: "var(--surface-hover)" }}>
+                                ⚪ Place libre
+                              </span>
+                            ) : (
+                              <span className="badge" style={{ background: "rgba(245, 158, 11, 0.15)", color: "#d97706" }}>
+                                ⚪ En attente
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: "end" }}>
+                            {st.ticket ? (
+                              <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+                                <button
+                                  type="button"
+                                  className="btn"
+                                  disabled={isBoarded}
+                                  onClick={() => handleDirectSeatAction(st, "boarded")}
+                                  style={{
+                                    background: isBoarded ? "var(--surface-hover)" : "#10b981",
+                                    color: isBoarded ? "var(--muted)" : "#fff",
+                                    padding: "4px 10px",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    border: 0,
+                                  }}
+                                  title="Marquer présent à bord (son siège devient vert)"
+                                >
+                                  🟢 À bord
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn"
+                                  onClick={() => handleDirectSeatAction(st, "absent")}
+                                  style={{
+                                    background: isAbsent ? "var(--surface-hover)" : "#ef4444",
+                                    color: isAbsent ? "var(--muted)" : "#fff",
+                                    padding: "4px 10px",
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    border: 0,
+                                  }}
+                                  title="Signaler absent et libérer le siège pour remplacement"
+                                >
+                                  🔴 {isAbsent ? "Remplacer" : "Absent"}
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn--outline"
+                                onClick={() => {
+                                  setAbsentSeatModal(st);
+                                  if (selectedTripId) loadCandidates(selectedTripId);
+                                }}
+                                style={{ padding: "4px 8px", fontSize: 11 }}
+                              >
+                                ➕ Attribuer cette place
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

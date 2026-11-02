@@ -93,8 +93,27 @@ export default function AgencyWorkspace() {
   const { i18n } = useTranslation();
   const { agencySession, refreshAgency } = useAuth();
   const role = agencySession?.role ?? "staff";
+  const [userDashboardModules, setUserDashboardModules] = useState<string[]>(
+    agencySession?.user.dashboard_modules || []
+  );
 
-  const allowedTabs = useMemo(() => TABS.filter((t) => t.roles.includes(role)), [role]);
+  const allowedTabs = useMemo(() => {
+    return TABS.filter((t) => {
+      if (!t.roles.includes(role)) return false;
+      if (t.id === "chat" || t.id === "overview") return true;
+      if (userDashboardModules && userDashboardModules.length > 0) {
+        if (t.id === "boarding" && !userDashboardModules.includes("boarding")) return false;
+        if (t.id === "desk" && !userDashboardModules.includes("desk")) return false;
+        if (t.id === "fleet_live" && !userDashboardModules.includes("tracking")) return false;
+        if (t.id === "fleet" && !userDashboardModules.includes("fleet")) return false;
+        if (t.id === "analytics" && !userDashboardModules.includes("analytics")) return false;
+        if (t.id === "commercial" && !userDashboardModules.includes("rentals") && !userDashboardModules.includes("sales")) return false;
+        if (t.id === "finance" && !userDashboardModules.includes("cash_journal") && !userDashboardModules.includes("sales")) return false;
+        if (t.id === "settings" && !userDashboardModules.includes("settings")) return false;
+      }
+      return true;
+    });
+  }, [role, userDashboardModules]);
   const [tab, setTab] = useState<TabId>(() => {
     if (role === "secretary") return "desk";
     if (role === "staff") return "boarding";
@@ -250,6 +269,35 @@ export default function AgencyWorkspace() {
   });
   const [avatarModalOpen, setAvatarModalOpen] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState("");
+
+  // Demandes d'adhésion du personnel (Self-onboarding, validation, rejet, signalement fraude)
+  const [joinRequests, setJoinRequests] = useState<
+    {
+      id: number;
+      agency_id: number;
+      first_name: string;
+      last_name: string;
+      email: string;
+      phone: string | null;
+      requested_role: string;
+      custom_role_title: string | null;
+      modules: string[];
+      status: "pending" | "approved" | "rejected" | "reported";
+      matricule_generated: string | null;
+      ip: string | null;
+      user_agent: string | null;
+      reported_reason: string | null;
+      reported_evidence: any | null;
+      decided_at: string | null;
+      created_at: string;
+    }[]
+  >([]);
+  const [complaintModal, setComplaintModal] = useState<any | null>(null);
+  const [reportReasonPrompt, setReportReasonPrompt] = useState<{ id: number; name: string; email: string } | null>(null);
+  const [reportReasonText, setReportReasonText] = useState("Tentative d'usurpation d'identité ou intrusion non autorisée");
+  const [dashboardModulesModal, setDashboardModulesModal] = useState(false);
+  const [delegateModal, setDelegateModal] = useState<{ userId: number; name: string; matricule?: string | null } | null>(null);
+  const [selectedDelegateTo, setSelectedDelegateTo] = useState<number>(0);
 
   // Analytics des ventes
   const [salesPeriod, setSalesPeriod] = useState<"daily" | "weekly" | "monthly" | "yearly">("weekly");
@@ -435,8 +483,12 @@ export default function AgencyWorkspace() {
         const an = await api<NonNullable<typeof salesAnalytics>>(`/agency/sales-analytics?period=${salesPeriod}`, { realm: "agency" });
         setSalesAnalytics(an);
       } else if (tab === "staff") {
-        const s = await api<typeof staffRows>("/agency/staff", { realm: "agency" });
+        const [s, jr] = await Promise.all([
+          api<typeof staffRows>("/agency/staff", { realm: "agency" }),
+          api<typeof joinRequests>("/agency/join-requests", { realm: "agency" }).catch(() => []),
+        ]);
         setStaffRows(s);
+        setJoinRequests(jr);
       } else if (tab === "commercial") {
         const r = await api<typeof rentals>("/agency/rentals", { realm: "agency" });
         setRentals(r);
@@ -659,6 +711,105 @@ export default function AgencyWorkspace() {
     }
   }
 
+  // Traiter une demande d'adhésion : Valider (approve) ou Rejeter (reject)
+  async function handleJoinRequestAction(reqId: number, action: "approve" | "reject") {
+    setNotice("");
+    setError("");
+    try {
+      const res = await api<{ ok: boolean; action: string; matricule?: string; message?: string }>(
+        `/agency/join-requests/${reqId}/action`,
+        {
+          body: { action },
+          realm: "agency",
+        }
+      );
+      if (action === "approve") {
+        setNotice(res.message || `Demande validée ! Matricule unique officiel : ${res.matricule}`);
+      } else {
+        setNotice("La demande d'adhésion a été rejetée.");
+      }
+      loadTabContent();
+    } catch (err) {
+      handleErr(err);
+    }
+  }
+
+  // Signaler pour fraude / intrusion et générer la plainte judiciaire
+  async function handleReportFraud() {
+    if (!reportReasonPrompt) return;
+    setNotice("");
+    setError("");
+    try {
+      const res = await api<{ ok: boolean; action: string; complaint_file: any; message: string }>(
+        `/agency/join-requests/${reportReasonPrompt.id}/action`,
+        {
+          body: { action: "report", reason: reportReasonText },
+          realm: "agency",
+        }
+      );
+      setComplaintModal(res.complaint_file);
+      setReportReasonPrompt(null);
+      setNotice(res.message);
+      loadTabContent();
+    } catch (err) {
+      handleErr(err);
+    }
+  }
+
+  // Sauvegarder les modules du tableau de bord configurés par le membre
+  async function handleSaveDashboardModules() {
+    setNotice("");
+    setError("");
+    try {
+      const res = await api<{ ok: boolean; modules: string[] }>("/agency/me/dashboard-modules", {
+        body: { modules: userDashboardModules },
+        realm: "agency",
+      });
+      setUserDashboardModules(res.modules);
+      setDashboardModulesModal(false);
+      setNotice("✓ Votre tableau de bord a été réadapté avec succès selon vos cercles choisis (zéro perte de données).");
+    } catch (err) {
+      handleErr(err);
+    }
+  }
+
+  // Déclaration de départ : « Je ne suis plus employé de l'agence »
+  async function handleResign() {
+    if (
+      !confirm(
+        "Confirmez-vous que vous ne faites plus partie du personnel de cette agence ? Vos accès seront clôturés immédiatement en toute sécurité, tout en préservant l'historique complet de vos opérations pour l'agence."
+      )
+    )
+      return;
+    setNotice("");
+    setError("");
+    try {
+      await api("/agency/me/resign", { body: {}, realm: "agency" });
+      alert("Votre départ a été enregistré avec succès. Vos accès ont été révoqués.");
+      window.location.href = "/";
+    } catch (err) {
+      handleErr(err);
+    }
+  }
+
+  // Déléguer les attributions d'un poste à un autre membre
+  async function handleDelegate() {
+    if (!delegateModal || !selectedDelegateTo) return;
+    setNotice("");
+    setError("");
+    try {
+      const res = await api<{ ok: boolean; message: string }>(`/agency/staff/${delegateModal.userId}/delegate`, {
+        body: { delegate_to_user_id: selectedDelegateTo },
+        realm: "agency",
+      });
+      setNotice(res.message);
+      setDelegateModal(null);
+      loadTabContent();
+    } catch (err) {
+      handleErr(err);
+    }
+  }
+
   async function sendRentalQuote(rentalId: number) {
     const draft = quoteDrafts[rentalId];
     if (!draft?.amount) return;
@@ -836,6 +987,25 @@ export default function AgencyWorkspace() {
               Session personnelle de <strong>{agencySession.user.first_name} {agencySession.user.last_name}</strong> ({agencySession.user.email}) ·{" "}
               📍 {agencySession.agency.address}
             </p>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setDashboardModulesModal(true)}
+                style={{ fontSize: "var(--text-xs)", border: "1px solid var(--accent)", color: "var(--accent)", padding: "4px 10px" }}
+              >
+                ⚙️ Modifier mon tableau de bord
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={handleResign}
+                style={{ fontSize: "var(--text-xs)", color: "#ef4444", border: "1px dashed rgba(239, 68, 68, 0.4)", padding: "4px 10px" }}
+                title="Déclarer votre départ et clôturer votre session en toute sécurité"
+              >
+                🚪 Je ne suis plus employé de l'agence
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1891,14 +2061,112 @@ export default function AgencyWorkspace() {
         </div>
       )}
 
-      {/* ==================== 7. COMPTES ÉQUIPE ISOLÉS (6 RÔLES) ==================== */}
+      {/* ==================== 7. COMPTES ÉQUIPE ISOLÉS & DEMANDES D'ADHÉSION ==================== */}
       {tab === "staff" && (
         <div className="agency-layout">
           <div className="card form-grid">
+            {/* DEMANDES D'ADHÉSION EN ATTENTE DE VALIDATION */}
+            <div style={{ border: "1.5px solid var(--accent)", borderRadius: 10, padding: "var(--space-3)", background: "rgba(140, 107, 184, 0.04)", marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                <div>
+                  <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)" }}>
+                    🔔 Demandes d'Adhésion en Attente ({joinRequests.filter((r) => r.status === "pending").length})
+                  </span>
+                  <h3 className="subheading" style={{ margin: "4px 0 2px", fontSize: "var(--text-base)" }}>
+                    Validation des Nouveaux Membres du Personnel
+                  </h3>
+                  <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                    Les employés rejoignent l'agence avec vos codes. Validez leur profil (génère un <strong>matricule unique</strong>), rejetez ou <strong>signalez</strong> pour fraude / intrusion.
+                  </p>
+                </div>
+              </div>
+
+              {joinRequests.filter((r) => r.status === "pending").length === 0 ? (
+                <div style={{ padding: "8px 12px", background: "var(--surface)", borderRadius: 6, fontSize: "var(--text-xs)", color: "var(--muted)", textAlign: "center" }}>
+                  Aucune demande d'adhésion en attente.
+                </div>
+              ) : (
+                <ul className="call-list" style={{ gap: 8 }}>
+                  {joinRequests
+                    .filter((r) => r.status === "pending")
+                    .map((req) => (
+                      <li
+                        key={req.id}
+                        className="call-row"
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: 10,
+                          padding: "10px 12px",
+                          background: "var(--surface)",
+                          borderRadius: 8,
+                          border: "1px solid var(--border)",
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <strong style={{ fontSize: "var(--text-sm)" }}>
+                              {req.first_name} {req.last_name}
+                            </strong>
+                            <span className="badge" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#2563eb", fontSize: 11 }}>
+                              Poste demandé : {req.custom_role_title || req.requested_role}
+                            </span>
+                          </div>
+                          <div className="muted mono" style={{ fontSize: 11, marginTop: 2 }}>
+                            ✉️ {req.email} · 📞 {req.phone || "Sans tél"} · 🌐 IP : {req.ip || "127.0.0.1"} · Reçu le {new Date(req.created_at).toLocaleDateString()}
+                          </div>
+                          {req.modules && req.modules.length > 0 && (
+                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                              {req.modules.map((m) => (
+                                <span key={m} className="badge" style={{ fontSize: 10, padding: "1px 6px" }}>
+                                  {m}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <button
+                            type="button"
+                            className="btn btn--primary"
+                            onClick={() => handleJoinRequestAction(req.id, "approve")}
+                            style={{ background: "#10b981", borderColor: "#059669", fontSize: 11, padding: "5px 10px", fontWeight: 700 }}
+                            title="Valider l'adhésion et générer automatiquement le matricule officiel"
+                          >
+                            ✅ Valider
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--outline"
+                            onClick={() => handleJoinRequestAction(req.id, "reject")}
+                            style={{ fontSize: 11, padding: "5px 10px" }}
+                            title="Rejeter cette demande"
+                          >
+                            ❌ Rejeter
+                          </button>
+                          <button
+                            type="button"
+                            className="btn"
+                            onClick={() => setReportReasonPrompt({ id: req.id, name: `${req.first_name} ${req.last_name}`, email: req.email })}
+                            style={{ background: "#ef4444", color: "#fff", border: 0, fontSize: 11, padding: "5px 10px", fontWeight: 700 }}
+                            title="Signaler cette tentative pour fraude / fausse identité et ouvrir le procès-verbal de plainte"
+                          >
+                            🚨 Signaler
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+
             <div>
               <h2 className="subheading" style={{ margin: 0 }}>Comptes du personnel ({staffRows.length})</h2>
               <p className="muted" style={{ margin: "4px 0 0", fontSize: "var(--text-sm)" }}>
-                Chaque membre possède ses propres identifiants et son propre code PIN à 5 chiffres. Aucun employé ne
+                Chaque membre possède ses propres identifiants, son matricule officiel et son code PIN à 5 chiffres. Aucun employé ne
                 peut ouvrir l’interface d’un autre rôle.
               </p>
             </div>
@@ -1920,7 +2188,7 @@ export default function AgencyWorkspace() {
                           </span>
                         )}
                       </div>
-                      <span className="badge">{m.status === "active" ? "Actif" : "Révoqué"}</span>
+                      <span className="badge">{m.status === "active" ? "Actif" : "Révoqué / Parti"}</span>
                     </div>
                     <span className="muted mono" style={{ fontSize: "var(--text-xs)" }}>
                       {m.email} {m.phone ? `· ${m.phone}` : ""}
@@ -1933,9 +2201,20 @@ export default function AgencyWorkspace() {
                       </div>
                     )}
                     {role === "owner" && m.role !== "owner" && (
-                      <div style={{ marginTop: 6 }}>
+                      <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button type="button" className="chip" onClick={() => toggleStaff(m.user_id)}>
                           {m.status === "active" ? "Verrouiller / Révoquer l’accès" : "Réactiver le compte"}
+                        </button>
+                        <button
+                          type="button"
+                          className="chip"
+                          onClick={() => {
+                            setDelegateModal({ userId: m.user_id, name: `${m.first_name} ${m.last_name}`, matricule: m.matricule });
+                            const other = staffRows.find((s) => s.user_id !== m.user_id && s.status === "active");
+                            setSelectedDelegateTo(other?.user_id ?? 0);
+                          }}
+                        >
+                          🔄 Déléguer ce poste
                         </button>
                       </div>
                     )}
@@ -2358,6 +2637,338 @@ export default function AgencyWorkspace() {
                 onClick={() => updateAvatar(avatarPreview)}
               >
                 Enregistrer ma photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1 : PERSONNALISATION DU TABLEAU DE BORD (CERCLES MÉTIER) */}
+      {dashboardModulesModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.65)",
+            backdropFilter: "blur(4px)",
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setDashboardModulesModal(false)}
+        >
+          <div
+            className="card form-grid"
+            style={{ maxWidth: 620, width: "100%", background: "var(--surface)", border: "2px solid var(--accent)", maxHeight: "90vh", overflowY: "auto" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)" }}>
+                  ⚙️ Tableau de Bord Modulaire
+                </span>
+                <h3 className="subheading" style={{ margin: "4px 0 2px" }}>
+                  Personnaliser mes Missions & Cercles Métier
+                </h3>
+                <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                  Ajoutez ou masquez des tâches en fonction de vos attributions. VELTRON réadapte votre tableau de bord sans aucune perte de données.
+                </p>
+              </div>
+              <button type="button" className="btn btn--ghost" onClick={() => setDashboardModulesModal(false)} style={{ fontSize: 18 }}>
+                ✕
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                gap: 8,
+                margin: "12px 0",
+              }}
+            >
+              {[
+                { id: "desk", label: "Guichet & Ventes", icon: "🎟️", desc: "Vente billets comptoir, encaissements espèces / Momo, bagages" },
+                { id: "boarding", label: "Embarquement & Quai", icon: "📋", desc: "Appel passagers, sièges verts/rouges, passagers sans bagages" },
+                { id: "fleet", label: "Flotte & Lignes", icon: "🚌", desc: "Bus, immatriculations, plan de sièges" },
+                { id: "tracking", label: "Suivi GPS en Direct", icon: "🗺️", desc: "Localisation Maps en direct et signal chauffeur" },
+                { id: "rentals", label: "Location de Bus", icon: "🤝", desc: "Chiffrage devis et location de véhicules" },
+                { id: "sales", label: "Bourse & Vente Bus", icon: "🛒", desc: "Achat et vente de cars d'occasion" },
+                { id: "analytics", label: "Diagramme Ventes", icon: "📊", desc: "Statistiques et chiffre d'affaires (jour/sem/mois/an)" },
+                { id: "cash_journal", label: "Journal de Caisse", icon: "💼", desc: "Bilan espèces, Mobile Money et cartes" },
+                { id: "settings", label: "Sécurité & Audit", icon: "⚙️", desc: "Règles agence, accès et traçabilité" },
+              ].map((mod) => {
+                const isSelected = userDashboardModules.includes(mod.id);
+                return (
+                  <button
+                    key={mod.id}
+                    type="button"
+                    onClick={() => {
+                      if (isSelected) {
+                        setUserDashboardModules(userDashboardModules.filter((m) => m !== mod.id));
+                      } else {
+                        setUserDashboardModules([...userDashboardModules, mod.id]);
+                      }
+                    }}
+                    className="card card--interactive"
+                    style={{
+                      padding: "10px",
+                      borderRadius: 10,
+                      textAlign: "start",
+                      background: isSelected ? "rgba(140, 107, 184, 0.12)" : "var(--surface)",
+                      border: isSelected ? "2px solid var(--accent)" : "1px solid var(--border)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: "var(--text-xs)" }}>
+                      <span>{mod.icon}</span>
+                      <span style={{ color: isSelected ? "var(--accent)" : "inherit" }}>{mod.label}</span>
+                      {isSelected && <span style={{ marginLeft: "auto", color: "var(--accent)" }}>✓</span>}
+                    </div>
+                    <div className="muted" style={{ fontSize: 10, marginTop: 4, lineHeight: 1.3 }}>
+                      {mod.desc}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" className="btn btn--ghost" onClick={() => setDashboardModulesModal(false)}>
+                Annuler
+              </button>
+              <button type="button" className="btn btn--primary" onClick={handleSaveDashboardModules} style={{ background: "var(--accent)" }}>
+                ✓ Enregistrer & Réadapter mon tableau de bord
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2 : PROMPT DU MOTIF DE SIGNALEMENT FRAUDE */}
+      {reportReasonPrompt && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.65)",
+            backdropFilter: "blur(4px)",
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setReportReasonPrompt(null)}
+        >
+          <div
+            className="card form-grid"
+            style={{ maxWidth: 500, width: "100%", background: "var(--surface)", border: "2px solid #ef4444" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 24 }}>🚨</span>
+              <h3 className="subheading" style={{ margin: 0, color: "#dc2626" }}>
+                Signaler cette tentative d'accès pour fraude
+              </h3>
+            </div>
+            <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+              Candidat ciblé : <strong>{reportReasonPrompt.name}</strong> ({reportReasonPrompt.email}).
+              Cette action génère un <strong>dossier juridique de plainte</strong> comportant l'adresse IP, le dispositif et l'empreinte numérique du suspect.
+            </p>
+
+            <label className="field">
+              <span className="field__label">Motif du signalement / constat de tentative frauduleuse *</span>
+              <textarea
+                className="textarea"
+                rows={3}
+                required
+                value={reportReasonText}
+                onChange={(e) => setReportReasonText(e.target.value)}
+              />
+            </label>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" className="btn btn--ghost" onClick={() => setReportReasonPrompt(null)}>
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={handleReportFraud}
+                style={{ background: "#dc2626", color: "#fff", border: 0, fontWeight: 700 }}
+              >
+                🚨 Confirmer le signalement & Ouvrir la plainte
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3 : PROCÈS-VERBAL OFFICIEL DE PLAINTE POUR FRAUDE NUMÉRIQUE */}
+      {complaintModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.75)",
+            backdropFilter: "blur(4px)",
+            zIndex: 10001,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setComplaintModal(null)}
+        >
+          <div
+            className="card form-grid"
+            style={{
+              maxWidth: 680,
+              width: "100%",
+              background: "#ffffff",
+              color: "#1e293b",
+              border: "3px double #b91c1c",
+              padding: "var(--space-4)",
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ borderBottom: "2px solid #b91c1c", paddingBottom: 10, textAlign: "center" }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                RÉPUBLIQUE DU CAMEROUN · PAIX - TRAVAIL - PATRIE
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#64748b" }}>
+                DIRECTION DE LA POLICE JUDICIAIRE / DIVISION DE LA CYBERCRIMINALITÉ
+              </div>
+              <h2 style={{ fontSize: "var(--text-lg)", color: "#b91c1c", margin: "8px 0 2px", fontWeight: 900 }}>
+                SIGNALEMENT OFFICIEL DE TENTATIVE D'INTRUSION & FRAUDE
+              </h2>
+              <span className="badge mono" style={{ background: "#fee2e2", color: "#991b1b", border: "1px solid #f87171" }}>
+                RÉFÉRENCE PV : {complaintModal.pv_reference}
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: "var(--text-xs)", margin: "10px 0" }}>
+              <div style={{ background: "#f8fafc", padding: 10, borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                <strong style={{ color: "#0f172a", display: "block", marginBottom: 4 }}>📋 DONNÉES DE L'AGENCE PLAINTE :</strong>
+                <div>Agence : <strong>{complaintModal.agency.agency_name}</strong></div>
+                <div>Officier déclarant : <strong>{complaintModal.agency.reported_by_officer}</strong></div>
+                <div>Horodatage : {complaintModal.reported_at}</div>
+              </div>
+
+              <div style={{ background: "#fef2f2", padding: 10, borderRadius: 6, border: "1px solid #fecaca" }}>
+                <strong style={{ color: "#991b1b", display: "block", marginBottom: 4 }}>👤 SUSPECT IDENTIFIÉ :</strong>
+                <div>Identité déclarée : <strong>{complaintModal.suspect.full_name}</strong></div>
+                <div>E-mail : {complaintModal.suspect.email}</div>
+                <div>Téléphone : {complaintModal.suspect.phone}</div>
+                <div>Adresse IP tracée : <strong className="mono">{complaintModal.suspect.ip_address}</strong></div>
+              </div>
+            </div>
+
+            <div style={{ background: "#f1f5f9", padding: 10, borderRadius: 6, fontSize: "var(--text-xs)" }}>
+              <strong>Empreinte technique du terminal suspect :</strong>
+              <div className="mono" style={{ fontSize: 11, wordBreak: "break-all", marginTop: 4 }}>
+                {complaintModal.suspect.user_agent}
+              </div>
+            </div>
+
+            <div style={{ fontSize: "var(--text-xs)", lineHeight: 1.5 }}>
+              <strong style={{ color: "#b91c1c" }}>Motif & Justification :</strong> {complaintModal.justification}
+              <br />
+              <strong style={{ color: "#475569" }}>Base légale :</strong> {complaintModal.legal_notice}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, borderTop: "1px solid #e2e8f0", paddingTop: 10 }}>
+              <button
+                type="button"
+                className="btn btn--outline"
+                onClick={() => window.print()}
+                style={{ fontSize: "var(--text-xs)", fontWeight: 700 }}
+              >
+                🖨️ Imprimer le procès-verbal pour les autorités
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setComplaintModal(null)}
+                style={{ background: "#0f172a", color: "#fff" }}
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4 : DÉLÉGATION D'UN POSTE À UN AUTRE MEMBRE */}
+      {delegateModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.65)",
+            backdropFilter: "blur(4px)",
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={() => setDelegateModal(null)}
+        >
+          <div
+            className="card form-grid"
+            style={{ maxWidth: 480, width: "100%", background: "var(--surface)", border: "1px solid var(--border)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="subheading" style={{ margin: 0 }}>
+              🔄 Déléguer les attributions du poste
+            </h3>
+            <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+              Transférer la gestion et les responsabilités du collaborateur <strong>{delegateModal.name}</strong> ({delegateModal.matricule || "Membre"}) à un autre collaborateur actif ou à vous-même :
+            </p>
+
+            <label className="field">
+              <span className="field__label">Choisir le collaborateur délégataire :</span>
+              <select
+                className="select"
+                value={selectedDelegateTo}
+                onChange={(e) => setSelectedDelegateTo(Number(e.target.value))}
+              >
+                {staffRows
+                  .filter((s) => s.user_id !== delegateModal.userId && s.status === "active")
+                  .map((s) => (
+                    <option key={s.user_id} value={s.user_id}>
+                      {s.first_name} {s.last_name} ({s.matricule || s.role})
+                    </option>
+                  ))}
+              </select>
+            </label>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button type="button" className="btn btn--ghost" onClick={() => setDelegateModal(null)}>
+                Annuler
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={handleDelegate}
+                disabled={!selectedDelegateTo}
+              >
+                Confirmer la délégation
               </button>
             </div>
           </div>

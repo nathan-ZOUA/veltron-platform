@@ -20,6 +20,7 @@ import Auth from "../pages/Auth";
 import AgencyHub from "../pages/AgencyHub";
 import Partner from "../pages/Partner";
 import AgencyLogin from "../pages/AgencyLogin";
+import AgencyJoin from "../pages/AgencyJoin";
 import AgencyWorkspace from "../pages/AgencyWorkspace";
 import Admin from "../pages/Admin";
 
@@ -74,6 +75,7 @@ export default function App() {
           <Route index element={<AgencyHub />} />
           <Route path="creer" element={<Partner />} />
           <Route path="connexion" element={<AgencyLogin />} />
+          <Route path="rejoindre" element={<AgencyJoin />} />
           <Route
             path="espace"
             element={

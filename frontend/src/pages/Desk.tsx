@@ -56,6 +56,22 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  // Journal de Caisse quotidien du guichet
+  const [cashJournal, setCashJournal] = useState<{
+    currency_code: string;
+    generated_at: string;
+    agent_name: string;
+    summary: {
+      total_sales_count: number;
+      total_amount: number;
+      total_cash: number;
+      total_momo: number;
+      total_card: number;
+    };
+    sales: any[];
+  } | null>(null);
+  const [showJournal, setShowJournal] = useState(false);
+
   const canManage =
     agencySession && ["owner", "manager", "secretary"].includes(agencySession.role);
 
@@ -232,6 +248,17 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
       });
       await loadManifest(tripId);
       loadTrips();
+    } catch (err) {
+      fail(err);
+    }
+  }
+
+  async function loadCashJournal() {
+    setError("");
+    try {
+      const res = await api<any>("/desk/cash-journal", { realm: "agency" });
+      setCashJournal(res);
+      setShowJournal(true);
     } catch (err) {
       fail(err);
     }
@@ -820,6 +847,127 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                 </div>
               </form>
             )}
+
+            {/* JOURNAL DE CAISSE QUOTIDIEN DU GUICHET */}
+            <div className="card form-grid" style={{ marginTop: "var(--space-4)", border: "1px solid var(--accent)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <div>
+                  <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)" }}>
+                    💼 Journal de Caisse & Recettes Guichet
+                  </span>
+                  <h3 className="subheading" style={{ margin: "4px 0 2px" }}>
+                    Bilan Quotidien des Encaissements
+                  </h3>
+                  <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                    Suivez le cumul des ventes au guichet en direct : Espèces, Orange Money, MTN MoMo et Carte Bancaire.
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn--outline"
+                    onClick={loadCashJournal}
+                    style={{ fontSize: "var(--text-xs)", fontWeight: 700 }}
+                  >
+                    {showJournal ? "🔄 Actualiser la caisse" : "📊 Consulter mon journal de caisse"}
+                  </button>
+                  {showJournal && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => window.print()}
+                      style={{ fontSize: "var(--text-xs)" }}
+                    >
+                      🖨️ Imprimer
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {showJournal && cashJournal && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
+                  {/* KPI Cards */}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                      gap: 10,
+                    }}
+                  >
+                    <div className="card" style={{ padding: "10px", background: "rgba(16, 185, 129, 0.1)", borderColor: "#10b981" }}>
+                      <span className="muted" style={{ fontSize: 11, display: "block" }}>💵 Espèces (Cash)</span>
+                      <strong style={{ fontSize: "var(--text-base)", color: "#059669" }}>
+                        {formatMoney(cashJournal.summary.total_cash, cashJournal.currency_code, minor, i18n.language)}
+                      </strong>
+                    </div>
+
+                    <div className="card" style={{ padding: "10px", background: "rgba(245, 158, 11, 0.1)", borderColor: "#f59e0b" }}>
+                      <span className="muted" style={{ fontSize: 11, display: "block" }}>📱 Mobile Money</span>
+                      <strong style={{ fontSize: "var(--text-base)", color: "#d97706" }}>
+                        {formatMoney(cashJournal.summary.total_momo, cashJournal.currency_code, minor, i18n.language)}
+                      </strong>
+                    </div>
+
+                    <div className="card" style={{ padding: "10px", background: "rgba(59, 130, 246, 0.1)", borderColor: "#3b82f6" }}>
+                      <span className="muted" style={{ fontSize: 11, display: "block" }}>💳 Carte / TPE</span>
+                      <strong style={{ fontSize: "var(--text-base)", color: "#2563eb" }}>
+                        {formatMoney(cashJournal.summary.total_card, cashJournal.currency_code, minor, i18n.language)}
+                      </strong>
+                    </div>
+
+                    <div className="card" style={{ padding: "10px", background: "rgba(140, 107, 184, 0.15)", borderColor: "var(--accent)" }}>
+                      <span className="muted" style={{ fontSize: 11, display: "block" }}>🏷️ Total Ventes ({cashJournal.summary.total_sales_count})</span>
+                      <strong style={{ fontSize: "var(--text-base)", color: "var(--accent)" }}>
+                        {formatMoney(cashJournal.summary.total_amount, cashJournal.currency_code, minor, i18n.language)}
+                      </strong>
+                    </div>
+                  </div>
+
+                  {/* Tableau des ventes du guichet */}
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="table" style={{ width: "100%", fontSize: "var(--text-xs)" }}>
+                      <thead>
+                        <tr>
+                          <th>Réf</th>
+                          <th>Passager</th>
+                          <th>Siège</th>
+                          <th>Trajet</th>
+                          <th>Mode Paiement</th>
+                          <th>Montant</th>
+                          <th>Heure</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cashJournal.sales.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 16 }}>
+                              Aucune vente guichet enregistrée sur les dernières 24h.
+                            </td>
+                          </tr>
+                        ) : (
+                          cashJournal.sales.map((sl: any) => (
+                            <tr key={sl.id}>
+                              <td className="mono">{sl.reference}</td>
+                              <td><strong>{sl.passenger_name || "Client guichet"}</strong></td>
+                              <td>#{sl.seat_no ?? "—"}</td>
+                              <td>{sl.origin && sl.destination ? `${sl.origin} → ${sl.destination}` : "—"}</td>
+                              <td>
+                                <span className="badge" style={{ fontSize: 10 }}>
+                                  {sl.provider === "cash" ? "💵 Espèces" : sl.provider === "card" ? "💳 Carte" : `📱 ${sl.provider}`}
+                                </span>
+                              </td>
+                              <td><strong>{formatMoney(sl.amount, sl.currency_code, minor, i18n.language)}</strong></td>
+                              <td className="muted">{new Date(sl.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
       </section>

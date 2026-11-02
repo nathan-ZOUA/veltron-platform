@@ -46,6 +46,7 @@ export interface AgencySession {
     custom_role?: string | null;
     job_title?: string | null;
     avatar_url?: string | null;
+    dashboard_modules?: string[] | null;
   };
   role: AgencyRole;
   agency: AgencyInfo;

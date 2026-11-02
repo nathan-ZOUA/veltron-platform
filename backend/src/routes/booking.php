@@ -232,7 +232,21 @@ route('POST', '/api/bookings/{id}/pay', function (array $p) {
 // Mes billets
 route('GET', '/api/me/tickets', function () {
     $user = require_passenger();
-    $rows = all("SELECT k.id, k.status, k.passenger_name, k.price, s.seat_no, b.reference, b.currency_code,
+
+    // Purge automatique de l'historique si le passager a configuré une fréquence de rétention (en jours)
+    $uRow = one("SELECT history_retention_days FROM users WHERE id = ?", [$user['id']]);
+    $retentionDays = (int) ($uRow['history_retention_days'] ?? 0);
+    if ($retentionDays > 0) {
+        q("UPDATE tickets k
+           JOIN bookings b ON b.id = k.booking_id
+           SET k.hidden_from_passenger = 1
+           WHERE b.user_id = ? AND k.status IN ('completed', 'cancelled', 'refunded', 'no_show')
+             AND k.created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)",
+            [$user['id'], $retentionDays]);
+    }
+
+    $rows = all("SELECT k.id, k.status, k.passenger_name, k.price, k.boarded_at, k.created_at,
+                        s.seat_no, b.reference, b.currency_code,
                         t.id AS trip_id, t.departs_at, t.status AS trip_status, t.delay_minutes,
                         oc.name AS origin, dc.name AS destination, oc.timezone,
                         a.id AS agency_id, a.slug, a.name AS agency_name, a.primary_color, a.refund_cutoff_minutes,
@@ -246,14 +260,51 @@ route('GET', '/api/me/tickets', function () {
                  JOIN seats s ON s.id = k.seat_id
                  JOIN agencies a ON a.id = t.agency_id
                  WHERE b.user_id = ? AND k.status NOT IN ('held', 'expired')
+                   AND COALESCE(k.hidden_from_passenger, 0) = 0
                  ORDER BY t.departs_at DESC", [$user['id']]);
     foreach ($rows as &$r) {
         $r['refund'] = refund_quote($r);
         $r['reviewed'] = (bool) $r['reviewed'];
         $r['departs_at'] = iso($r['departs_at']);
+        $r['boarded_at'] = $r['boarded_at'] ? iso($r['boarded_at']) : null;
+        $r['created_at'] = iso($r['created_at']);
         unset($r['agency_id'], $r['refund_cutoff_minutes']);
     }
     json_out($rows);
+});
+
+// Masquer / supprimer un billet terminé de l'historique du passager
+route('POST', '/api/me/tickets/{id}/hide', function (array $p) {
+    $user = require_passenger();
+    $ticketId = (int) $p['id'];
+
+    $t = one("SELECT k.id FROM tickets k
+              JOIN bookings b ON b.id = k.booking_id
+              WHERE k.id = ? AND b.user_id = ?", [$ticketId, $user['id']])
+        ?? fail(404, 'not_found', 'Billet introuvable.');
+
+    q("UPDATE tickets SET hidden_from_passenger = 1 WHERE id = ?", [$ticketId]);
+
+    json_out(['ok' => true, 'message' => 'Voyage retiré de votre historique.']);
+});
+
+// Paramètres de rétention et suppression automatique de l'historique passager
+route('GET', '/api/me/history-settings', function () {
+    $user = require_passenger();
+    $uRow = one("SELECT history_retention_days FROM users WHERE id = ?", [$user['id']]);
+    json_out([
+        'retention_days' => (int) ($uRow['history_retention_days'] ?? 0),
+    ]);
+});
+
+route('POST', '/api/me/history-settings', function () {
+    $user = require_passenger();
+    $in = input();
+    $days = max(0, min(365, (int) ($in['retention_days'] ?? 0)));
+
+    q("UPDATE users SET history_retention_days = ? WHERE id = ?", [$days, $user['id']]);
+
+    json_out(['ok' => true, 'retention_days' => $days]);
 });
 
 // Détail d'un billet

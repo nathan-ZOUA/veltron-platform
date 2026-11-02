@@ -384,3 +384,62 @@ route('POST', '/api/desk/tickets/{id}/luggage', function (array $p) {
     audit((int) $s['id'], (int) $s['agency_id'], 'luggage.add', 'ticket', (int) $k['id'], ['tag' => $tag]);
     json_out(['tag_code' => $tag, 'fee' => $fee], 201);
 });
+
+// Journal de Caisse quotidien du guichet (Secrétaire / Comptable / Admin)
+route('GET', '/api/desk/cash-journal', function () {
+    $s = require_agency(['owner', 'manager', 'secretary', 'accountant', 'staff']);
+    $ag = one("SELECT currency_code, name FROM agencies WHERE id = ?", [$s['agency_id']]);
+
+    // Ventes au guichet des dernières 24h ou de la journée en cours
+    $sales = all("SELECT p.id, p.provider, p.amount, p.currency_code, p.status, p.created_at,
+                         b.reference, b.channel,
+                         k.passenger_name, k.id_type, k.id_number, k.phone, st.seat_no,
+                         oc.name AS origin, dc.name AS destination, t.departs_at
+                  FROM payments p
+                  JOIN bookings b ON b.id = p.booking_id
+                  LEFT JOIN tickets k ON k.booking_id = b.id
+                  LEFT JOIN seats st ON st.id = k.seat_id
+                  LEFT JOIN trips t ON t.id = b.trip_id
+                  LEFT JOIN routes r ON r.id = t.route_id
+                  LEFT JOIN cities oc ON oc.id = r.origin_city_id
+                  LEFT JOIN cities dc ON dc.id = r.dest_city_id
+                  WHERE b.agency_id = ? AND b.channel = 'counter' AND p.status = 'succeeded'
+                    AND p.created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)
+                  ORDER BY p.id DESC LIMIT 100", [$s['agency_id']]);
+
+    $totalCash = 0;
+    $totalMomo = 0;
+    $totalCard = 0;
+    $totalAll = 0;
+
+    foreach ($sales as &$sale) {
+        $sale['created_at'] = iso($sale['created_at']);
+        $sale['departs_at'] = $sale['departs_at'] ? iso($sale['departs_at']) : null;
+        $amt = (int) $sale['amount'];
+        $totalAll += $amt;
+
+        if ($sale['provider'] === 'cash') {
+            $totalCash += $amt;
+        } elseif (in_array($sale['provider'], ['orange_money', 'mtn_momo', 'wave'], true)) {
+            $totalMomo += $amt;
+        } elseif ($sale['provider'] === 'card') {
+            $totalCard += $amt;
+        } else {
+            $totalCash += $amt;
+        }
+    }
+
+    json_out([
+        'currency_code' => $ag['currency_code'] ?? 'XAF',
+        'generated_at' => gmdate('Y-m-d H:i:s') . ' UTC',
+        'agent_name' => trim($s['first_name'] . ' ' . $s['last_name']),
+        'summary' => [
+            'total_sales_count' => count($sales),
+            'total_amount' => $totalAll,
+            'total_cash' => $totalCash,
+            'total_momo' => $totalMomo,
+            'total_card' => $totalCard,
+        ],
+        'sales' => $sales,
+    ]);
+});

@@ -105,7 +105,7 @@ route('GET', '/api/me', fn() => json_out(passenger_payload(require_passenger()))
 function agency_session_payload(int $userId, int $agencyId, string $role): array
 {
     $u = one('SELECT id, email, first_name, last_name, phone, locale, avatar_url FROM users WHERE id = ?', [$userId]);
-    $st = one('SELECT matricule, custom_role, avatar_url, job_title FROM agency_staff WHERE agency_id = ? AND user_id = ?', [$agencyId, $userId]);
+    $st = one('SELECT matricule, custom_role, avatar_url, job_title, dashboard_modules FROM agency_staff WHERE agency_id = ? AND user_id = ?', [$agencyId, $userId]);
     $a = one('SELECT id, public_code, slug, name, primary_color, currency_code, status, verification_status,
                      verification_score, fill_window_minutes, refund_cutoff_minutes, free_baggage_kg,
                      baggage_fee_per_kg, transfer_fee, points_per_trip, email, phone, address
@@ -122,6 +122,7 @@ function agency_session_payload(int $userId, int $agencyId, string $role): array
             'custom_role' => $st['custom_role'] ?? null,
             'job_title' => $st['job_title'] ?? null,
             'avatar_url' => $st['avatar_url'] ?: ($u['avatar_url'] ?? null),
+            'dashboard_modules' => !empty($st['dashboard_modules']) ? json_decode($st['dashboard_modules'], true) : null,
         ],
         'role' => $role,
         'agency' => [
@@ -271,6 +272,99 @@ route('POST', '/api/agency/auth/verify', function () {
 route('GET', '/api/agency/me', function () {
     $s = require_agency();
     json_out(agency_session_payload((int) $s['id'], (int) $s['agency_id'], (string) $s['role']));
+});
+
+// Demande d'adhésion d'un futur collaborateur à une agence (Self-onboarding avec mise en attente)
+route('POST', '/api/agency/join-request', function () {
+    rate_limit('agency_join:ip:' . client_ip(), 10, 300);
+    $in = input();
+    $code = strtoupper(trim((string) ($in['agency_code'] ?? '')));
+    $email = strtolower(trim((string) ($in['email'] ?? '')));
+    $first = str_in($in['first_name'] ?? '', 80);
+    $last = str_in($in['last_name'] ?? '', 80);
+    $phone = str_in($in['phone'] ?? '', 25) ?: null;
+    $password = (string) ($in['password'] ?? '');
+    $role = (string) ($in['requested_role'] ?? 'staff');
+    $customTitle = str_in($in['custom_role_title'] ?? '', 100) ?: null;
+    $modules = is_array($in['modules'] ?? null) ? $in['modules'] : [];
+
+    if (!$code || !$email || !$first || !$last || strlen($password) < 6) {
+        fail(422, 'validation_error', 'Veuillez remplir tous les champs obligatoires (mot de passe de 6 caractères min).');
+    }
+
+    $agency = one("SELECT id, name, public_code, status FROM agencies WHERE public_code = ? OR UPPER(slug) = ?", [$code, $code])
+        ?? fail(404, 'agency_not_found', 'Code d\'agence invalide ou introuvable.');
+
+    if ($agency['status'] === 'suspended') fail(403, 'agency_suspended', 'Cette agence est actuellement suspendue.');
+
+    // Vérifier si un compte actif existe déjà pour cet email dans cette agence
+    $existingStaff = one("SELECT st.id FROM agency_staff st JOIN users u ON u.id = st.user_id WHERE st.agency_id = ? AND u.email = ? AND st.status = 'active'",
+        [$agency['id'], $email]);
+    if ($existingStaff) {
+        fail(409, 'already_staff', 'Vous êtes déjà membre actif de cette agence. Connectez-vous avec votre matricule.');
+    }
+
+    // Vérifier si une demande est déjà en attente
+    $existingReq = one("SELECT id, status FROM staff_join_requests WHERE agency_id = ? AND email = ? ORDER BY id DESC LIMIT 1",
+        [$agency['id'], $email]);
+    if ($existingReq && $existingReq['status'] === 'pending') {
+        fail(409, 'already_pending', 'Une demande d\'adhésion est déjà en attente de validation par l\'administrateur.');
+    }
+
+    $pwHash = password_hash($password, PASSWORD_DEFAULT);
+    $ip = client_ip();
+    $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+
+    q("INSERT INTO staff_join_requests (agency_id, first_name, last_name, email, phone, password_hash, requested_role, custom_role_title, modules_json, status, ip, user_agent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+        [$agency['id'], $first, $last, $email, $phone, $pwHash, $role, $customTitle, json_encode($modules, JSON_UNESCAPED_UNICODE), $ip, $userAgent]);
+
+    // Notifier les administrateurs de l'agence
+    $owners = all("SELECT user_id FROM agency_staff WHERE agency_id = ? AND role = 'owner'", [$agency['id']]);
+    foreach ($owners as $ow) {
+        notify_user((int) $ow['user_id'], 'staff.join_request', [
+            'applicant_name' => "$first $last",
+            'applicant_email' => $email,
+            'requested_role' => $customTitle ?: $role,
+            'agency_name' => $agency['name']
+        ]);
+    }
+
+    json_out([
+        'ok' => true,
+        'status' => 'pending',
+        'agency_name' => $agency['name'],
+        'agency_code' => $agency['public_code'],
+        'message' => "Votre demande a été transmise à l'administrateur de {$agency['name']}. Vous êtes actuellement en attente de validation."
+    ]);
+});
+
+// Consultation du statut de la demande d'adhésion par le candidat
+route('GET', '/api/agency/join-request/status', function () {
+    $email = strtolower(trim((string) ($_GET['email'] ?? '')));
+    $code = strtoupper(trim((string) ($_GET['agency_code'] ?? '')));
+
+    if (!$email || !$code) fail(422, 'missing_params', 'Email et code d\'agence requis.');
+
+    $agency = one("SELECT id, name FROM agencies WHERE public_code = ? OR UPPER(slug) = ?", [$code, $code])
+        ?? fail(404, 'not_found', 'Agence introuvable.');
+
+    $req = one("SELECT * FROM staff_join_requests WHERE agency_id = ? AND email = ? ORDER BY id DESC LIMIT 1",
+        [$agency['id'], $email]);
+
+    if (!$req) fail(404, 'no_request', 'Aucune demande d\'adhésion trouvée.');
+
+    json_out([
+        'status' => $req['status'],
+        'agency_name' => $agency['name'],
+        'first_name' => $req['first_name'],
+        'last_name' => $req['last_name'],
+        'requested_role' => $req['requested_role'],
+        'custom_role_title' => $req['custom_role_title'],
+        'matricule' => $req['matricule_generated'],
+        'created_at' => iso($req['created_at']),
+        'decided_at' => $req['decided_at'] ? iso($req['decided_at']) : null,
+    ]);
 });
 
 // ---------- 3. ESPACE PROPRIÉTAIRE / SUPERVISION VELTRON ----------

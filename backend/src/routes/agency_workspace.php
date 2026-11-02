@@ -894,3 +894,261 @@ route('GET', '/api/agency/audit', function () {
     json_out($rows);
 });
 
+// =============================================================================
+// GESTION DU PERSONNEL : DEMANDES D'ADHÉSION, FRAUDE & TABLEAU MODULAIRE
+// =============================================================================
+
+// Liste des demandes d'adhésion au sein de l'agence (pending, approved, rejected, reported)
+route('GET', '/api/agency/join-requests', function () {
+    $s = require_agency(['owner', 'manager']);
+    $rows = all("SELECT jr.id, jr.agency_id, jr.first_name, jr.last_name, jr.email, jr.phone,
+                        jr.requested_role, jr.custom_role_title, jr.modules_json, jr.status,
+                        jr.matricule_generated, jr.ip, jr.user_agent, jr.reported_reason,
+                        jr.reported_evidence_json, jr.decided_at, jr.created_at,
+                        du.first_name AS decider_first_name, du.last_name AS decider_last_name
+                 FROM staff_join_requests jr
+                 LEFT JOIN users du ON du.id = jr.decided_by
+                 WHERE jr.agency_id = ?
+                 ORDER BY FIELD(jr.status, 'pending', 'reported', 'approved', 'rejected'), jr.id DESC LIMIT 100",
+        [$s['agency_id']]);
+
+    foreach ($rows as &$r) {
+        $r['modules'] = $r['modules_json'] ? json_decode($r['modules_json'], true) : [];
+        $r['reported_evidence'] = $r['reported_evidence_json'] ? json_decode($r['reported_evidence_json'], true) : null;
+        $r['created_at'] = iso($r['created_at']);
+        $r['decided_at'] = $r['decided_at'] ? iso($r['decided_at']) : null;
+        unset($r['modules_json'], $r['reported_evidence_json']);
+    }
+    json_out($rows);
+});
+
+// Action sur une demande d'adhésion : approve, reject, report
+route('POST', '/api/agency/join-requests/{id}/action', function (array $p) {
+    $s = require_agency(['owner', 'manager']);
+    $in = input();
+    $action = (string) ($in['action'] ?? '');
+    $reqId = (int) $p['id'];
+
+    $req = one("SELECT * FROM staff_join_requests WHERE id = ? AND agency_id = ?", [$reqId, $s['agency_id']])
+        ?? fail(404, 'not_found', 'Demande d\'adhésion introuvable.');
+
+    if ($action === 'approve') {
+        if ($req['status'] === 'approved') fail(409, 'already_approved', 'Cette demande a déjà été validée.');
+
+        $matricule = transaction(function () use ($s, $req) {
+            // 1. Vérifier si l'utilisateur existe déjà ou le créer
+            $user = one("SELECT id FROM users WHERE email = ?", [$req['email']]);
+            if (!$user) {
+                $algo = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
+                $pwHash = $req['password_hash'] ?: password_hash('PassTemp123!', $algo);
+                q("INSERT INTO users (email, phone, password_hash, first_name, last_name, status) VALUES (?, ?, ?, ?, ?, 'active')",
+                    [$req['email'], $req['phone'] ?: null, $pwHash, $req['first_name'], $req['last_name']]);
+                $userId = (int) db()->lastInsertId();
+            } else {
+                $userId = (int) $user['id'];
+            }
+
+            // 2. Déterminer le rôle officiel
+            $validRoles = ['manager', 'secretary', 'driver', 'staff', 'accountant'];
+            $role = in_array($req['requested_role'], $validRoles, true) ? $req['requested_role'] : 'staff';
+            $customTitle = $req['custom_role_title'] ?: ($req['requested_role'] === 'other' ? 'Poste personnalisé' : $role);
+
+            // 3. Génération automatique du matricule unique
+            $prefix = match ($role) {
+                'secretary'  => 'SEC',
+                'driver'     => 'CHAUF',
+                'manager'    => 'PRG',
+                'accountant' => 'CPT',
+                default      => 'STF',
+            };
+            $countStaff = (int) (one("SELECT COUNT(*) AS c FROM agency_staff WHERE agency_id = ? AND role = ?", [$s['agency_id'], $role])['c'] ?? 0) + 1;
+            $matricule = sprintf('AG%d-%s-%02d', (int) $s['agency_id'], $prefix, $countStaff);
+
+            // 4. Modules autorisés pour son tableau de bord
+            $modulesJson = $req['modules_json'] ?: json_encode(['desk', 'boarding', 'tracking']);
+
+            // 5. Insérer ou activer dans agency_staff
+            $existingStaff = one("SELECT id FROM agency_staff WHERE agency_id = ? AND user_id = ?", [$s['agency_id'], $userId]);
+            if ($existingStaff) {
+                q("UPDATE agency_staff SET role = ?, job_title = ?, custom_role = ?, matricule = ?, dashboard_modules = ?, status = 'active', resigned_at = NULL WHERE id = ?",
+                    [$role, $customTitle, $customTitle, $matricule, $modulesJson, $existingStaff['id']]);
+            } else {
+                q("INSERT INTO agency_staff (agency_id, user_id, role, job_title, custom_role, matricule, dashboard_modules, status, invited_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)",
+                    [$s['agency_id'], $userId, $role, $customTitle, $customTitle, $matricule, $modulesJson, $s['id']]);
+            }
+
+            // 6. Si chauffeur, insérer dans drivers
+            if ($role === 'driver') {
+                q("INSERT IGNORE INTO drivers (agency_id, user_id, photo_consent, licence_verified) VALUES (?, ?, 1, 1)",
+                    [$s['agency_id'], $userId]);
+            }
+
+            // 7. Mettre à jour la demande
+            q("UPDATE staff_join_requests SET status = 'approved', matricule_generated = ?, decided_by = ?, decided_at = UTC_TIMESTAMP() WHERE id = ?",
+                [$matricule, $s['id'], $req['id']]);
+
+            audit((int) $s['id'], $s['agency_id'], 'staff.approved_join', 'staff_join_request', $req['id'], [
+                'matricule' => $matricule,
+                'email' => $req['email'],
+                'role' => $role,
+            ]);
+
+            return $matricule;
+        });
+
+        json_out([
+            'ok' => true,
+            'action' => 'approved',
+            'matricule' => $matricule,
+            'message' => "La demande de {$req['first_name']} {$req['last_name']} a été validée. Son matricule officiel est {$matricule}."
+        ]);
+
+    } elseif ($action === 'reject') {
+        q("UPDATE staff_join_requests SET status = 'rejected', decided_by = ?, decided_at = UTC_TIMESTAMP() WHERE id = ?",
+            [$s['id'], $req['id']]);
+
+        audit((int) $s['id'], $s['agency_id'], 'staff.reject_join', 'staff_join_request', $req['id']);
+
+        json_out(['ok' => true, 'action' => 'rejected']);
+
+    } elseif ($action === 'report') {
+        $reason = str_in($in['reason'] ?? 'Tentative d\'usurpation d\'identité / intrusion illégitime', 300);
+        $agency = one("SELECT name, slug, phone FROM agencies WHERE id = ?", [$s['agency_id']]);
+
+        // Préparation du dossier de preuve pour plainte
+        $evidence = [
+            'pv_reference' => sprintf('PV-FRAUD-AG%d-%05d', (int) $s['agency_id'], (int) $req['id']),
+            'incident_type' => 'Tentative d\'usurpation d\'identité et d\'accès illégal au système d\'agence',
+            'reported_at' => gmdate('Y-m-d H:i:s') . ' UTC',
+            'suspect' => [
+                'full_name' => trim($req['first_name'] . ' ' . $req['last_name']),
+                'email' => $req['email'],
+                'phone' => $req['phone'] ?: 'Non communiqué',
+                'ip_address' => $req['ip'] ?: '127.0.0.1',
+                'user_agent' => $req['user_agent'] ?: 'Inconnu',
+                'attempted_role' => $req['requested_role'],
+                'custom_title' => $req['custom_role_title'],
+                'timestamp' => $req['created_at'],
+            ],
+            'agency' => [
+                'agency_id' => (int) $s['agency_id'],
+                'agency_name' => $agency['name'] ?? 'VELTRON Partner Agency',
+                'reported_by_officer' => trim($s['first_name'] . ' ' . $s['last_name']) . " (Admin / Responsable)",
+            ],
+            'legal_notice' => 'Infraction passible de sanctions selon les dispositions relatives à la cybercriminalité, fraude informatique et faux en écritures.',
+            'justification' => $reason,
+        ];
+
+        q("UPDATE staff_join_requests SET status = 'reported', reported_reason = ?, reported_evidence_json = ?, decided_by = ?, decided_at = UTC_TIMESTAMP() WHERE id = ?",
+            [$reason, json_encode($evidence), $s['id'], $req['id']]);
+
+        audit((int) $s['id'], $s['agency_id'], 'staff.report_fraud', 'staff_join_request', $req['id'], [
+            'reason' => $reason,
+            'suspect_email' => $req['email'],
+        ]);
+
+        json_out([
+            'ok' => true,
+            'action' => 'reported',
+            'complaint_file' => $evidence,
+            'message' => "Le signalement pour fraude a été enregistré. Le dossier juridique et les données techniques du suspect sont disponibles pour déposer plainte."
+        ]);
+    } else {
+        fail(422, 'invalid_action', 'Action non reconnue (approve, reject, report).');
+    }
+});
+
+// Consultation et mise à jour des modules du tableau de bord d'un collaborateur
+route('GET', '/api/agency/me/dashboard-modules', function () {
+    $s = require_agency();
+    $row = one("SELECT dashboard_modules, role, custom_role, matricule FROM agency_staff WHERE agency_id = ? AND user_id = ?",
+        [$s['agency_id'], $s['id']]);
+
+    $saved = $row && $row['dashboard_modules'] ? json_decode($row['dashboard_modules'], true) : null;
+    if (!$saved) {
+        $saved = match ($s['role']) {
+            'owner', 'manager' => ['desk', 'boarding', 'fleet', 'tracking', 'rentals', 'sales', 'analytics', 'settings'],
+            'secretary'        => ['desk', 'cash_journal', 'fleet'],
+            'driver'           => ['tracking', 'trips'],
+            'accountant'       => ['sales', 'analytics', 'cash_journal'],
+            default            => ['desk', 'boarding', 'tracking'],
+        };
+    }
+
+    json_out([
+        'role' => $s['role'],
+        'matricule' => $row['matricule'] ?? null,
+        'custom_role' => $row['custom_role'] ?? null,
+        'modules' => $saved,
+    ]);
+});
+
+route('POST', '/api/agency/me/dashboard-modules', function () {
+    $s = require_agency();
+    $in = input();
+    $modules = $in['modules'] ?? [];
+    if (!is_array($modules)) fail(422, 'invalid_modules', 'Liste des modules invalide.');
+
+    $allowed = ['desk', 'boarding', 'fleet', 'tracking', 'rentals', 'sales', 'analytics', 'settings', 'cash_journal'];
+    $filtered = array_values(array_intersect($allowed, $modules));
+
+    q("UPDATE agency_staff SET dashboard_modules = ? WHERE agency_id = ? AND user_id = ?",
+        [json_encode($filtered), $s['agency_id'], $s['id']]);
+
+    json_out(['ok' => true, 'modules' => $filtered]);
+});
+
+// Départ du collaborateur (« Je ne suis plus employé de l'agence »)
+route('POST', '/api/agency/me/resign', function () {
+    $s = require_agency();
+    if ($s['role'] === 'owner') {
+        $ownersCount = (int) (one("SELECT COUNT(*) AS c FROM agency_staff WHERE agency_id = ? AND role = 'owner' AND status = 'active'", [$s['agency_id']])['c'] ?? 0);
+        if ($ownersCount <= 1) {
+            fail(409, 'last_owner', 'En tant qu\'unique administrateur propriétaire, vous ne pouvez pas démissionner sans déléguer l\'agence à un successeur.');
+        }
+    }
+
+    q("UPDATE agency_staff SET status = 'disabled', resigned_at = UTC_TIMESTAMP() WHERE agency_id = ? AND user_id = ?",
+        [$s['agency_id'], $s['id']]);
+
+    // Révocation de toutes les sessions actives de ce membre pour cette agence
+    q("UPDATE sessions SET revoked_at = UTC_TIMESTAMP() WHERE realm = 'agency' AND agency_id = ? AND user_id = ?",
+        [$s['agency_id'], $s['id']]);
+
+    audit((int) $s['id'], $s['agency_id'], 'staff.resigned', 'agency_staff', (int) $s['id']);
+
+    json_out([
+        'ok' => true,
+        'message' => 'Votre départ a été enregistré. Vos accès ont été clôturés en toute sécurité.'
+    ]);
+});
+
+// Délégation des fonctions d'un poste par l'administrateur
+route('POST', '/api/agency/staff/{userId}/delegate', function (array $p) {
+    $s = require_agency(['owner']);
+    $in = input();
+    $targetUid = (int) $p['userId'];
+    $delegateToUid = (int) ($in['delegate_to_user_id'] ?? 0);
+
+    if ($targetUid === $delegateToUid) fail(422, 'invalid_target', 'Impossible de déléguer à la même personne.');
+
+    $targetStaff = one("SELECT id, role, matricule FROM agency_staff WHERE agency_id = ? AND user_id = ?", [$s['agency_id'], $targetUid])
+        ?? fail(404, 'not_found', 'Membre source introuvable.');
+
+    $delegateStaff = one("SELECT id, role, matricule FROM agency_staff WHERE agency_id = ? AND user_id = ? AND status = 'active'", [$s['agency_id'], $delegateToUid])
+        ?? fail(404, 'delegate_not_found', 'Membre délégué introuvable ou inactif.');
+
+    q("UPDATE agency_staff SET delegate_user_id = ? WHERE id = ?", [$delegateToUid, $targetStaff['id']]);
+
+    audit((int) $s['id'], $s['agency_id'], 'staff.delegated', 'agency_staff', $targetStaff['id'], [
+        'from_user_id' => $targetUid,
+        'to_user_id' => $delegateToUid,
+    ]);
+
+    json_out([
+        'ok' => true,
+        'message' => "Les attributions et missions du poste ({$targetStaff['matricule']}) ont été déléguées au collaborateur ({$delegateStaff['matricule']})."
+    ]);
+});
+

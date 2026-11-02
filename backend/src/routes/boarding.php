@@ -346,3 +346,29 @@ route('POST', '/api/boarding/trips/{id}/depart', function (array $p) {
 
     json_out(['ok' => true, 'commission' => $commission]);
 });
+
+// Marquer l'arrivée à destination et clôturer le voyage (libère les sièges et archive dans l'historique passager)
+route('POST', '/api/boarding/trips/{id}/complete', function (array $p) {
+    $s = require_agency(['owner', 'manager', 'driver', 'staff']);
+    $trip = one('SELECT id, status FROM trips WHERE id = ? AND agency_id = ?', [(int) $p['id'], $s['agency_id']])
+        ?? fail(404, 'not_found', 'Départ introuvable.');
+
+    transaction(function () use ($s, $trip) {
+        q("UPDATE trips SET status = 'completed', actual_arrived_at = COALESCE(actual_arrived_at, UTC_TIMESTAMP()) WHERE id = ?", [$trip['id']]);
+
+        // Les billets des passagers à bord passent en 'completed' et basculent dans leur historique
+        q("UPDATE tickets SET status = 'completed', active_seat_id = NULL WHERE trip_id = ? AND status = 'boarded'", [$trip['id']]);
+
+        q("INSERT INTO trip_status_updates (trip_id, user_id, kind, progress_pct, note)
+           VALUES (?, ?, 'arrived', 100, 'Bus arrivé à destination finale. Sièges libérés et tickets archivés dans l\'historique')",
+            [$trip['id'], $s['id']]);
+
+        audit((int) $s['id'], $s['agency_id'], 'trip.complete', 'trip', (int) $trip['id']);
+    });
+
+    json_out([
+        'ok' => true,
+        'message' => 'Voyage clôturé avec succès : le bus est arrivé à destination, les places sont libérées et les billets sont classés dans l\'historique des voyageurs.'
+    ]);
+});
+

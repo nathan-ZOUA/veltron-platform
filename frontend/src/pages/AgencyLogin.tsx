@@ -217,6 +217,12 @@ export default function AgencyLogin() {
               {busy ? "Vérification…" : "Recevoir mon code de validation (5 chiffres) →"}
             </button>
 
+            <div style={{ textAlign: "center", padding: "4px 0" }}>
+              <Link to="/agence/rejoindre" className="link" style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--accent)" }}>
+                👉 Nouveau collaborateur ? Rejoindre l'agence avec vos codes d'accès →
+              </Link>
+            </div>
+
             {error && (
               <p className="error" role="alert">
                 {error}
