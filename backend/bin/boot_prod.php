@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 // =============================================================================
-// Initialisation & Nettoyage Production de la base MySQL VELTRON :
+// Initialisation & Nettoyage Production de la base MySQL VELTRON v2.1 :
 //  - Crée les tables (schema.sql) si la base est vide
 //  - Charge les 212 pays & devises (world_countries.sql) et le référentiel de villes
 //  - Supprime TOUTES les données de test/démo (is_seed = 1)

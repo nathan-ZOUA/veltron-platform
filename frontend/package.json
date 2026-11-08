@@ -1,7 +1,7 @@
 {
   "name": "veltron-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "2.1.0",
   "description": "VELTRON \u2013 Frontend (React + TypeScript + Vite). Auteur : Nathan Zoua",
   "author": "Nathan Zoua",
   "type": "module",

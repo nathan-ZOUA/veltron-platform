@@ -1,5 +1,5 @@
 -- =============================================================================
--- VELTRON – Schéma MySQL 8 (multi-agences, international) – version 2
+-- VELTRON – Schéma MySQL 8 (multi-agences, international) – v2.1 Production Release
 -- Moteur InnoDB, utf8mb4. Tous les montants sont en "unités mineures"
 -- (entiers) avec leur devise : 5500 XAF = 5500 ; 12,50 EUR = 1250.
 -- Toutes les dates sont stockées en UTC ; le fuseau local vient de cities.timezone.
