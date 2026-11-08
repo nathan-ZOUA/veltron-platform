@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../core/api";
 import { useAuth } from "../core/auth";
 import type { AgencySession } from "../core/types";
@@ -16,9 +17,8 @@ const DEMO_ACCOUNTS = [
 ];
 
 // Connexion "J'ai une agence" (/agence/connexion) :
-// Étape 1 : ID Agence généré automatiquement (AG-XXXXXX) + Nom de l'agence + E-mail + Mot de passe du compte
-// Étape 2 : Fenêtre de saisie du code de validation à 5 chiffres avec réinitialisation après 50 secondes
 export default function AgencyLogin() {
+  const { t } = useTranslation();
   const { saveAgencyLogin } = useAuth();
   const navigate = useNavigate();
 
@@ -167,19 +167,19 @@ export default function AgencyLogin() {
           >
             <div>
               <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)" }}>
-                🏢 Espace Agence & Personnel
+                🏢 {t("agencyNav.hub")}
               </span>
               <h1 className="heading display-md" style={{ margin: "8px 0 4px" }}>
-                Connexion à mon Agence
+                {t("agencyLogin.title")}
               </h1>
               <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
-                Entrez le code de votre agence et vos identifiants collaborateurs (email ou matricule).
+                {t("agencyLogin.step1Subtitle")}
               </p>
             </div>
 
             <div className="search-grid" style={{ gap: 12 }}>
               <label className="field">
-                <span className="field__label">ID Agence (généré auto)</span>
+                <span className="field__label">{t("agencyLogin.publicCode")}</span>
                 <input
                   className="input mono"
                   required
@@ -190,7 +190,7 @@ export default function AgencyLogin() {
               </label>
 
               <label className="field">
-                <span className="field__label">Nom de l’agence</span>
+                <span className="field__label">{t("agencyLogin.agencyName")}</span>
                 <input
                   className="input"
                   required
@@ -202,7 +202,7 @@ export default function AgencyLogin() {
             </div>
 
             <label className="field">
-              <span className="field__label">E-mail ou Matricule personnel (ex. AG1-SEC-02)</span>
+              <span className="field__label">{t("agencyLogin.email")}</span>
               <input
                 className="input"
                 required
@@ -213,7 +213,7 @@ export default function AgencyLogin() {
             </label>
 
             <label className="field">
-              <span className="field__label">Mot de passe personnel du compte</span>
+              <span className="field__label">{t("agencyLogin.password")}</span>
               <input
                 className="input"
                 type="password"
@@ -231,18 +231,18 @@ export default function AgencyLogin() {
             )}
 
             <button type="submit" className="btn btn--lg" disabled={busy} style={{ marginTop: 4, height: 48, fontSize: "var(--text-sm)", fontWeight: 700 }}>
-              {busy ? "Vérification en cours…" : "Recevoir mon code de validation (5 chiffres) →"}
+              {busy ? t("common.loading") : t("agencyLogin.btnContinue")}
             </button>
 
             <div style={{ textAlign: "center", padding: "4px 0" }}>
               <Link to="/agence/rejoindre" className="link" style={{ fontSize: "var(--text-xs)", fontWeight: 600, color: "var(--accent)" }}>
-                👉 Nouveau collaborateur ? Rejoindre l'agence avec vos codes d'accès →
+                👉 {t("agencyNav.join")} →
               </Link>
             </div>
 
             {/* Comptes de test sous accordéon épuré (ne surcharge jamais la page) */}
             <details className="demo-accordion">
-              <summary>💡 Tester avec un compte pré-configuré (Démonstration)</summary>
+              <summary>💡 {t("agencyLogin.demoShortcut")}</summary>
               <div className="chips" style={{ marginTop: 10 }}>
                 {DEMO_ACCOUNTS.map((acc) => (
                   <button key={acc.email} type="button" className="chip" onClick={() => fillDemo(acc.email)}>
@@ -261,12 +261,12 @@ export default function AgencyLogin() {
             animate={{ opacity: 1, scale: 1 }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-              <span className="badge">Étape 2/2 · Double vérification</span>
-              <span className="badge mono">Rôle : {detectedRole.toUpperCase()}</span>
+              <span className="badge">Étape 2/2 · {t("agencyLogin.title")}</span>
+              <span className="badge mono">{t("agencyLogin.roleDetected")} : {detectedRole.toUpperCase()}</span>
             </div>
 
             <h1 className="subheading" style={{ fontSize: "var(--text-xl)", margin: 0 }}>
-              Entrez votre code de validation
+              {t("agencyLogin.step2Subtitle")}
             </h1>
             <p className="muted" style={{ margin: 0 }}>
               Un code à <strong>5 chiffres</strong> vient d’être envoyé à <strong className="mono">{maskedEmail}</strong>{" "}
@@ -286,7 +286,7 @@ export default function AgencyLogin() {
             )}
 
             <label className="field">
-              <span className="field__label">Code de validation (5 chiffres)</span>
+              <span className="field__label">{t("agencyLogin.pinPlaceholder")}</span>
               <input
                 className="input pin-input mono"
                 inputMode="numeric"
@@ -307,7 +307,7 @@ export default function AgencyLogin() {
             )}
 
             <button type="submit" className="btn btn--lg" disabled={otp.length !== 5 || busy}>
-              {busy ? "Ouverture sécurisée…" : "Déverrouiller mon espace agence →"}
+              {busy ? t("common.loading") : t("agencyLogin.btnVerify")}
             </button>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
@@ -318,8 +318,8 @@ export default function AgencyLogin() {
                 onClick={resendOtp}
               >
                 {resendLeft > 0
-                  ? `Réinitialiser le code dans ${resendLeft} s`
-                  : "Réinitialiser / Renvoyer un code"}
+                  ? `${t("agencyLogin.resendIn")} ${resendLeft} s`
+                  : t("agencyLogin.btnResend")}
               </button>
 
               <button
@@ -330,7 +330,7 @@ export default function AgencyLogin() {
                   setError("");
                 }}
               >
-                ← Changer de compte
+                {t("agencyLogin.btnBack")}
               </button>
             </div>
           </motion.form>

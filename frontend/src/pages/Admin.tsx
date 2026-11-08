@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import ThemeToggle from "../components/ThemeToggle";
+import LanguageSwitcher from "../components/LanguageSwitcher";
 import AngeAssistant from "../components/AngeAssistant";
 import { api, ApiError } from "../core/api";
 import { useAuth } from "../core/auth";
@@ -229,6 +230,7 @@ export default function Admin() {
                 Déconnexion Propriétaire
               </button>
             )}
+            <LanguageSwitcher />
             <ThemeToggle />
           </div>
         </div>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../core/api";
 import { useAuth } from "../core/auth";
 import { agencyStyle } from "../core/format";
@@ -42,6 +43,7 @@ interface LoyaltyPayload {
 }
 
 export default function LoyaltyPage() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [data, setData] = useState<LoyaltyPayload | null>(null);
   const [message, setMessage] = useState("");
@@ -87,11 +89,10 @@ export default function LoyaltyPage() {
       >
         <div className="photo-bg__image photo-bg__image--custom" />
         <div className="container service-hero__inner">
-          <span className="badge">⭐ Programme Fidélité Passagers Pan-Africain</span>
-          <h1 className="display display-xl">Gagnez des points à chaque voyage</h1>
+          <span className="badge">⭐ {t("loyalty.badge")}</span>
+          <h1 className="display display-xl">{t("loyalty.title")}</h1>
           <p className="lead">
-            Chaque billet payé avec votre compte vous rapporte automatiquement des points fidélité auprès de votre agence.
-            Votre solde débloque des billets gratuits, surclassements VIP, réductions et franchises bagages.
+            {t("loyalty.subtitle")}
           </p>
         </div>
       </section>
@@ -99,16 +100,16 @@ export default function LoyaltyPage() {
       <div className="container page">
         {!user ? (
           <div className="card loyalty-login-prompt">
-            <h2 className="subheading">Connectez-vous pour consulter vos points & récompenses</h2>
+            <h2 className="subheading">{t("loyalty.signInPrompt")}</h2>
             <p className="muted">
-              Créez un compte passager ou connectez-vous pour cumuler vos points automatiquement à chaque voyage.
+              {t("cards.loyalty.text")}
             </p>
             <div className="chips">
               <Link to="/passager/connexion?next=/passager/fidelite" className="btn btn--lg">
-                Se connecter / S’inscrire
+                {t("nav.login")}
               </Link>
               <Link to="/passager/agences" className="btn btn--ghost btn--lg">
-                Découvrir les agences partenaires
+                {t("nav.agencies")}
               </Link>
             </div>
           </div>
@@ -119,24 +120,24 @@ export default function LoyaltyPage() {
             {/* KPI METRICS CARDS */}
             <div className="kpi-grid loyalty-kpi-grid">
               <div className="card kpi-card kpi-card--accent">
-                <span className="muted">Solde cumulé actif ({data.year})</span>
+                <span className="muted">{t("loyalty.totalBalance")} ({data.year})</span>
                 <strong className="display kpi-card__value mono">{totalPoints} pts</strong>
                 <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                  Cumulé auprès de vos agences habituelles
+                  {t("loyalty.badge")}
                 </span>
               </div>
               <div className="card kpi-card">
-                <span className="muted">Remise à niveau annuelle</span>
+                <span className="muted">{t("loyalty.annualTrips")}</span>
                 <strong className="display kpi-card__value mono">31 déc. {data.year}</strong>
                 <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                  Conservez vos privilèges tout au long de l'année
+                  {t("loyalty.expiryNotice")}
                 </span>
               </div>
               <div className="card kpi-card">
-                <span className="muted">Bons cadeaux actifs</span>
+                <span className="muted">{t("loyalty.myVouchers")}</span>
                 <strong className="display kpi-card__value mono">{data.vouchers.length}</strong>
                 <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                  Utilisables en gare ou sur votre réservation
+                  {t("loyalty.availableRewards")}
                 </span>
               </div>
             </div>

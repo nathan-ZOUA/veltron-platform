@@ -32,7 +32,7 @@ const BUS_TYPES = [
 ];
 
 export default function BusRental() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const [countries, setCountries] = useState<Country[]>([]);
   const [agencies, setAgencies] = useState<AgencySummary[]>([]);
@@ -114,11 +114,10 @@ export default function BusRental() {
       >
         <div className="photo-bg__image photo-bg__image--custom" />
         <div className="container service-hero__inner">
-          <span className="badge">Service Affrètement & Groupes</span>
-          <h1 className="display display-xl">Location de bus sur mesure</h1>
+          <span className="badge">⭐ {t("cards.rental.tag")}</span>
+          <h1 className="display display-xl">{t("busRentalPage.title")}</h1>
           <p className="lead">
-            Mariage, séminaire d’entreprise, excursion touristique ou transfert d’équipe : choisissez votre gabarit,
-            avec ou sans chauffeur professionnel, et recevez un devis chiffré des compagnies agréées.
+            {t("busRentalPage.subtitle")}
           </p>
         </div>
       </section>

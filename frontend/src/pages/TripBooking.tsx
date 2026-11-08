@@ -307,7 +307,7 @@ export default function TripBooking() {
                 </button>
               ) : (
                 <>
-                  <h2 className="subheading">💳 Mode de paiement enregistré (Débit direct → Compte Agence)</h2>
+                  <h2 className="subheading">💳 {t("paymentExtra.methodTitle")}</h2>
                   <p className="muted">
                     {t("book.timeLeft")} : <strong className="mono">{mm}:{ss}</strong>
                   </p>
@@ -382,7 +382,7 @@ export default function TripBooking() {
 
                       <div className="search-grid">
                         <label className="field">
-                          <span className="field__label">Nom complet sur la carte bancaire</span>
+                          <span className="field__label">{t("paymentExtra.cardHolder")}</span>
                           <input
                             className="input"
                             required
@@ -392,7 +392,7 @@ export default function TripBooking() {
                           />
                         </label>
                         <label className="field">
-                          <span className="field__label">Numéro de carte bancaire (16 chiffres)</span>
+                          <span className="field__label">{t("paymentExtra.cardNumber")}</span>
                           <input
                             className="input mono"
                             required
@@ -406,7 +406,7 @@ export default function TripBooking() {
 
                       <div className="card-grid-row">
                         <label className="field">
-                          <span className="field__label">Date d'expiration</span>
+                          <span className="field__label">{t("paymentExtra.cardExpiry")}</span>
                           <input
                             className="input mono"
                             required
@@ -418,7 +418,7 @@ export default function TripBooking() {
                         </label>
                         <label className="field">
                           <span className="field__label" title="Cryptogramme de sécurité à 3 chiffres au dos de la carte">
-                            Code CVV / CVC 🔒
+                            {t("paymentExtra.cardCvv")} 🔒
                           </span>
                           <input
                             className="input mono"
@@ -432,7 +432,7 @@ export default function TripBooking() {
                         </label>
                         <label className="field">
                           <span className="field__label" title="Code de sécurité ou mot de passe de validation bancaire 3D Secure">
-                            Mot de passe 3D Secure / OTP 🔑
+                            3D Secure / OTP 🔑
                           </span>
                           <input
                             className="input mono"
@@ -450,19 +450,19 @@ export default function TripBooking() {
                           checked={saveCard}
                           onChange={(e) => setSaveCard(e.target.checked)}
                         />
-                        <span>Enregistrer cette carte pour mes prochains voyages (Chiffrement sécurisé PCI-DSS)</span>
+                        <span>{t("paymentExtra.verifiedSecurity")}</span>
                       </label>
 
                       <div className="security-badge-row">
                         <span>🛡️</span>
-                        <span>Paiement chiffré SSL 256 bits · Vérification 3D Secure activée · Aucune donnée brute stockée</span>
+                        <span>{t("paymentExtra.verifiedSecurity")}</span>
                       </div>
                     </div>
                   ) : (
                     <div className="search-grid">
                       <label className="field">
                         <span className="field__label">
-                          {payProvider === "card" ? "Numéro de carte enregistrée" : "Numéro Mobile Money à débiter"}
+                          {payProvider === "card" ? t("paymentExtra.cardNumber") : t("paymentExtra.payerAccount")}
                         </span>
                         <input
                           className="input mono"
@@ -473,7 +473,7 @@ export default function TripBooking() {
                         />
                       </label>
                       <label className="field">
-                        <span className="field__label">Nom du titulaire du compte</span>
+                        <span className="field__label">{t("paymentExtra.cardHolder")}</span>
                         <input
                           className="input"
                           required
@@ -490,7 +490,8 @@ export default function TripBooking() {
                   </p>
                   <button
                     type="button"
-                    className="btn btn--lg"
+                    className="btn btn--lg btn--primary"
+                    style={{ width: "100%", height: 50, fontSize: "var(--text-md)", fontWeight: 700 }}
                     disabled={
                       busy ||
                       secondsLeft === 0 ||
@@ -500,7 +501,7 @@ export default function TripBooking() {
                     }
                     onClick={pay}
                   >
-                    Confirmer & Débiter {money(booking.total)} → {trip.agency_name}
+                    {busy ? t("common.loading") : `${t("paymentExtra.confirmPay")} (${money(booking.total)}) →`}
                   </button>
                 </>
               )}

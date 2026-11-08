@@ -56,7 +56,7 @@ export default function Agencies() {
           <input
             type="search"
             className="input agency-search-input"
-            placeholder="Rechercher une compagnie, une ville ou un pays (ex: Équateur, Baobab, Douala, Dakar)..."
+            placeholder={t("search.agencyPlaceholder")}
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -85,7 +85,7 @@ export default function Agencies() {
         <div className="country-filter-bar">
           <div className="chips" role="group">
             <button type="button" className={iso === "" ? "chip is-active" : "chip"} onClick={() => setIso("")}>
-              🌍 Toute l'Afrique
+              🌍 {t("agencies.allAgencies", "Toute l'Afrique")}
             </button>
             {featured.map((c) => (
               <button

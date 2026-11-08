@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
 import Footer from "./Footer";
@@ -17,6 +18,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 export default function AgencyLayout() {
+  const { t } = useTranslation();
   const { agencySession, logoutAgency } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [angeOpen, setAngeOpen] = useState(false);
@@ -49,7 +51,7 @@ export default function AgencyLayout() {
               <span>{agencySession ? agencySession.agency.name : "VELTRON PRO"}</span>
             </Link>
             <Link to="/" className="portal-pill portal-pill--pro" title="Revenir à l'accueil général">
-              Agences ⇄
+              {t("agencyNav.switchRole")}
             </Link>
           </div>
 
@@ -57,16 +59,16 @@ export default function AgencyLayout() {
             {!agencySession ? (
               <>
                 <NavLink to="/agence" end className={({ isActive }) => (isActive ? "nav__link is-active" : "nav__link")}>
-                  Portail Agence
+                  {t("agencyNav.hub")}
                 </NavLink>
                 <NavLink to="/agence/creer" className={({ isActive }) => (isActive ? "nav__link is-active" : "nav__link")}>
-                  Créer une agence
+                  {t("agencyNav.create")}
                 </NavLink>
                 <NavLink to="/agence/connexion" className={({ isActive }) => (isActive ? "nav__link is-active" : "nav__link")}>
-                  J'ai une agence
+                  {t("agencyNav.login")}
                 </NavLink>
                 <NavLink to="/agence/rejoindre" className={({ isActive }) => (isActive ? "nav__link is-active" : "nav__link")}>
-                  Nouveau personnel
+                  {t("agencyNav.join")}
                 </NavLink>
               </>
             ) : (
@@ -78,7 +80,7 @@ export default function AgencyLayout() {
                   {ROLE_LABELS[agencySession.role] ?? agencySession.role} · {agencySession.user.first_name}
                 </span>
                 <span className="security-chip security-chip--e2ee" title="Base de données d'agence auto-provisionnée et strictement isolée">
-                  🗄️ DB Isolée Active
+                  🗄️ {t("agencyNav.isolatedDb")}
                 </span>
               </div>
             )}
@@ -87,11 +89,11 @@ export default function AgencyLayout() {
           <div className="header-tools">
             {agencySession ? (
               <button type="button" className="btn btn--ghost header-auth" onClick={handleLogout}>
-                Déconnexion
+                {t("agencyNav.logout")}
               </button>
             ) : (
               <Link to="/agence/connexion" className="btn header-auth">
-                Accès Agence
+                {t("agencyNav.access")}
               </Link>
             )}
             <LanguageSwitcher />

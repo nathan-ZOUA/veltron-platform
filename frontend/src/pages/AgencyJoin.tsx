@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../core/api";
 
 const AVAILABLE_MODULES = [
@@ -17,6 +18,7 @@ const AVAILABLE_MODULES = [
 ];
 
 export default function AgencyJoin() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<"form" | "pending" | "approved" | "rejected" | "reported">("form");
@@ -145,13 +147,13 @@ export default function AgencyJoin() {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
             <div style={{ textAlign: "center", marginBottom: 20 }}>
               <span className="badge" style={{ background: "rgba(140, 107, 184, 0.15)", color: "var(--accent)", fontWeight: 700 }}>
-                🏢 Portail Collaborateurs VELTRON
+                🏢 {t("agencyNav.join")}
               </span>
               <h1 className="heading display-md" style={{ margin: "8px 0 4px" }}>
-                Création de Compte Personnel
+                {t("agencyJoin.title")}
               </h1>
               <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
-                Rejoignez l'équipe de votre agence avec le code d'accès fourni par votre direction.
+                {t("agencyJoin.subtitle")}
               </p>
             </div>
 
@@ -353,12 +355,12 @@ export default function AgencyJoin() {
                 disabled={busy}
                 style={{ height: 48, fontSize: "var(--text-sm)", fontWeight: 700 }}
               >
-                {busy ? "Envoi de la demande en cours..." : "Envoyer ma demande pour validation admin →"}
+                {busy ? t("common.loading") : `${t("agencyJoin.submit")} →`}
               </button>
 
               <div style={{ textAlign: "center", marginTop: 4 }}>
                 <Link to="/agence/connexion" className="link" style={{ fontSize: "var(--text-xs)", color: "var(--accent)", fontWeight: 600 }}>
-                  ← Déjà membre ? Se connecter à l'espace agence
+                  ← {t("agencyLogin.title")}
                 </Link>
               </div>
             </form>

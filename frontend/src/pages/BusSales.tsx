@@ -27,7 +27,7 @@ interface BusListing {
 }
 
 export default function BusSales() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const [listings, setListings] = useState<BusListing[] | null>(null);
   const [search, setSearch] = useState("");
@@ -108,17 +108,16 @@ export default function BusSales() {
       >
         <div className="photo-bg__image photo-bg__image--custom" />
         <div className="container service-hero__inner">
-          <span className="badge">Marketplace Véhicules Certifiés</span>
-          <h1 className="display display-xl">Achat d’autocars, bus & minibus</h1>
+          <span className="badge">⭐ {t("cards.sales.tag")}</span>
+          <h1 className="display display-xl">{t("busSalesPage.title")}</h1>
           <p className="lead">
-            Acquérez des véhicules issus directement des flottes d’agences vérifiées sur VELTRON, avec historique
-            d’entretien et contact direct avec la direction technique.
+            {t("busSalesPage.subtitle")}
           </p>
 
           <div className="tracking-search">
             <input
               className="input"
-              placeholder="Rechercher une marque (Mercedes, Yutong, Toyota…), un pays ou une agence"
+              placeholder={t("busSalesPage.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
