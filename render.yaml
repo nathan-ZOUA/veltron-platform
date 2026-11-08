@@ -4,11 +4,9 @@ services:
     runtime: docker
     plan: free
     autoDeploy: true
-    healthCheckPath: /
+    healthCheckPath: /api/health
     envVars:
       - key: APP_ENV
         value: production
       - key: SHOW_OTP_HINT
         value: "1"
-      - key: PORT
-        value: "8080"

@@ -35,7 +35,7 @@ fi
 echo "[entrypoint] Initialisation et migrations VELTRON (boot_prod.php)..."
 php /app/backend/bin/boot_prod.php
 
-# Démarrage du serveur Web PHP sur le port attribué par Render ($PORT ou 8080)
-PORT_TO_USE="${PORT:-8080}"
+# Démarrage du serveur Web PHP sur le port attribué par Render ($PORT ou 10000)
+PORT_TO_USE="${PORT:-10000}"
 echo "[entrypoint] Démarrage du serveur Web VELTRON sur http://0.0.0.0:${PORT_TO_USE}..."
 exec php -S 0.0.0.0:${PORT_TO_USE} -t /app/backend/public /app/backend/public/index.php
