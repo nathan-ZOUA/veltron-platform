@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { QRCodeSVG } from "qrcode.react";
 import { useTranslation } from "react-i18next";
 import { api, ApiError } from "../core/api";
 import { useAuth } from "../core/auth";
 import { formatDay, formatMoney, formatTime } from "../core/format";
 import type { DeskTrip, Manifest } from "../core/types";
+import SeatGrid, { GridSeat } from "../components/SeatGrid";
 
 const STATUS_BADGES: Record<string, string> = {
   scheduled: "Programmé",
@@ -26,6 +28,8 @@ interface IssuedTicketReceipt {
   destination: string;
   departs_at: string;
   plate: string;
+  agency_name?: string;
+  veltron_account?: string;
 }
 
 export default function Desk({ embedded = false }: { embedded?: boolean }) {
@@ -41,11 +45,13 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   // Filtres et Recherche dans le plan de places
   const [searchQuery, setSearchQuery] = useState("");
   const [filterSeatType, setFilterSeatType] = useState<"all" | "free" | "occupied">("all");
-  const [viewMode, setViewMode] = useState<"cards" | "bus">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "bus">("bus");
 
-  // Vente directe au guichet (paiement en espèces)
+  // Vente directe au guichet (paiement en espèces & rattachement compte passager)
   const [walkIn, setWalkIn] = useState({
     passenger_name: "",
+    passenger_account: "",
+    email: "",
     seat_id: 0,
     id_type: "CNI",
     id_number: "",
@@ -63,7 +69,15 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  // Journal de Caisse du Guichet
+  // Journal de Caisse par départ & Historique / Archives consultables des mois après
+  const [tripJournal, setTripJournal] = useState<any>(null);
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [countedCash, setCountedCash] = useState("");
+  const [closeNotes, setCloseNotes] = useState("");
+  const [journalArchives, setJournalArchives] = useState<any[]>([]);
+  const [activeJournalTab, setActiveJournalTab] = useState<"trip" | "archives" | "daily">("trip");
+
+  // Journal de Caisse quotidien général
   const [cashJournal, setCashJournal] = useState<{
     currency_code: string;
     generated_at: string;
@@ -77,7 +91,6 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
     };
     sales: any[];
   } | null>(null);
-  const [showJournal, setShowJournal] = useState(false);
 
   const fail = useCallback(
     (e: unknown) => setError(e instanceof ApiError ? e.message : t("common.error")),
@@ -112,13 +125,25 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
     if (agencySession) loadTrips();
   }, [agencySession, loadTrips]);
 
+  const loadTripCashJournal = useCallback(async (tid: number) => {
+    try {
+      const res = await api<any>(`/desk/trips/${tid}/cash-journal`, { realm: "agency" });
+      setTripJournal(res);
+    } catch {
+      setTripJournal(null);
+    }
+  }, []);
+
   useEffect(() => {
     setMessage("");
     setError("");
     setWalkIn((prev) => ({ ...prev, seat_id: 0 }));
     setCashTendered("");
-    if (tripId) loadManifest(tripId);
-  }, [tripId, loadManifest]);
+    if (tripId) {
+      loadManifest(tripId);
+      loadTripCashJournal(tripId);
+    }
+  }, [tripId, loadManifest, loadTripCashJournal]);
 
   if (!agencySession) {
     return (
@@ -148,6 +173,23 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
         isSelected,
       };
     });
+  }, [manifest, walkIn.seat_id]);
+
+  // Modélisation réaliste pour le composant SeatGrid
+  const seatGridSeats: GridSeat[] = useMemo(() => {
+    if (!manifest) return [];
+    const occupiedSeatIds = new Set(manifest.tickets.filter((t) => t.status !== "no_show").map((t) => t.seat_id));
+    return manifest.seats.map((s) => ({
+      id: s.id,
+      seat_no: s.seat_no,
+      row_no: s.row_no,
+      col_no: s.col_no,
+      seat_class: s.seat_class,
+      taken: occupiedSeatIds.has(s.id),
+      disabled: occupiedSeatIds.has(s.id),
+      selected: walkIn.seat_id === s.id,
+      passenger_name: manifest.tickets.find((t) => t.seat_id === s.id)?.passenger_name,
+    }));
   }, [manifest, walkIn.seat_id]);
 
   const freeSeats = useMemo(() => seatDetailsList.filter((s) => s.isFree), [seatDetailsList]);
@@ -182,6 +224,47 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
   const tenderedAmount = Number(cashTendered) || 0;
   const changeDue = tenderedAmount > 0 ? tenderedAmount - tripPrice : 0;
 
+  // Clôture certifiée de la caisse d'un départ
+  async function handleCloseTripJournal() {
+    if (!tripId) return;
+    try {
+      const res = await api<any>(`/desk/trips/${tripId}/cash-journal/close`, {
+        body: {
+          cash_counted: countedCash ? Number(countedCash) : undefined,
+          notes: closeNotes,
+        },
+        realm: "agency",
+      });
+      setMessage(res.message || "✓ Caisse de ce départ clôturée avec succès !");
+      setShowCloseModal(false);
+      loadTripCashJournal(tripId);
+    } catch (err: any) {
+      fail(err);
+    }
+  }
+
+  // Consultation de l'historique et des archives des caisses
+  async function loadArchives() {
+    try {
+      const rows = await api<any[]>("/desk/cash-journals", { realm: "agency" });
+      setJournalArchives(rows);
+      setActiveJournalTab("archives");
+    } catch (err: any) {
+      fail(err);
+    }
+  }
+
+  async function handleDeleteArchive(id: number) {
+    if (!confirm("Voulez-vous supprimer définitivement cet enregistrement de caisse ?")) return;
+    try {
+      await api(`/desk/cash-journals/${id}`, { method: "DELETE", realm: "agency" });
+      setMessage("✓ Enregistrement de caisse supprimé.");
+      loadArchives();
+    } catch (err: any) {
+      fail(err);
+    }
+  }
+
   // Encaissement en espèces & vente directe
   async function handleSellWalkIn(e: FormEvent) {
     e.preventDefault();
@@ -190,7 +273,7 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
     setMessage("");
 
     try {
-      const res = await api<{ reference: string; seat_no: number; payment_method: string }>(
+      const res = await api<{ reference: string; seat_no: number; payment_method: string; linked_user_id?: number | null }>(
         `/desk/trips/${tripId}/sell`,
         {
           body: {
@@ -214,14 +297,18 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
           destination: current.destination,
           departs_at: current.departs_at,
           plate: current.plate,
+          agency_name: agencySession?.agency.name,
+          veltron_account: walkIn.passenger_account || undefined,
         });
       }
 
-      setMessage(`✓ Billet émis avec succès pour ${walkIn.passenger_name} sur le siège #${res.seat_no} !`);
+      setMessage(`✓ Billet émis avec succès pour ${walkIn.passenger_name} sur le siège #${res.seat_no} !${res.linked_user_id ? " Billet partagé sur son compte Veltron." : ""}`);
       
       // Réinitialiser le formulaire
       setWalkIn({
         passenger_name: "",
+        passenger_account: "",
+        email: "",
         seat_id: 0,
         id_type: "CNI",
         id_number: "",
@@ -231,11 +318,16 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
       });
       setCashTendered("");
 
-      // Rafraîchir les places en temps réel
+      // Rafraîchir les places en temps réel et le journal du départ
       await loadManifest(tripId);
+      loadTripCashJournal(tripId);
       loadTrips();
-    } catch (err) {
-      fail(err);
+    } catch (err: any) {
+      if (err instanceof ApiError && err.code === "conflict") {
+        setError("⚠️ Ce numéro de téléphone ou cette adresse e-mail a déjà été utilisé(e) sur un autre compte.");
+      } else {
+        fail(err);
+      }
     }
   }
 
@@ -244,7 +336,7 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
     try {
       const res = await api<any>("/desk/cash-journal", { realm: "agency" });
       setCashJournal(res);
-      setShowJournal(true);
+      setActiveJournalTab("daily");
     } catch (err) {
       fail(err);
     }
@@ -606,204 +698,43 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
               </div>
             )}
 
-            {/* ==================== VUE 2 : PLAN D'AUTOCAR RÉALISTE AVEC COCKPIT & NOMS ==================== */}
-            {viewMode === "bus" && manifest.layout && (
+            {/* ==================== VUE 2 : PLAN D'AUTOCAR RÉALISTE AVEC COCKPIT & SIÈGES DÉTAILLÉS ==================== */}
+            {viewMode === "bus" && (
               <div
                 style={{
                   background: "var(--surface)",
-                  border: "2px solid var(--border)",
-                  borderRadius: "28px",
-                  padding: "24px 18px",
+                  border: "1px solid var(--border)",
+                  borderRadius: "20px",
+                  padding: "16px",
                   maxWidth: 720,
                   margin: "10px auto",
                   boxShadow: "0 10px 30px rgba(0, 0, 0, 0.1)",
                 }}
               >
-                {/* Cockpit Conducteur */}
-                <div
-                  style={{
-                    borderBottom: "2px dashed var(--border)",
-                    paddingBottom: 16,
-                    marginBottom: 18,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
+                <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span className="badge" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+                    🚌 Vue Réaliste de l'Autocar & Cockpit
+                  </span>
+                  <span className="muted" style={{ fontSize: "0.82rem" }}>
+                    Cliquez sur une place libre pour demander la préférence au voyageur
+                  </span>
+                </div>
+
+                <SeatGrid
+                  seats={seatGridSeats}
+                  seatsPerRow={[2, 2]}
+                  showCockpit={true}
+                  busPlate={current.plate}
+                  busLabel={current.plate}
+                  interactive={true}
+                  selectedSeatIds={walkIn.seat_id ? [walkIn.seat_id] : []}
+                  onSelect={(seat: GridSeat) => {
+                    if (!seat.taken && !seat.disabled) {
+                      setWalkIn((prev) => ({ ...prev, seat_id: seat.id }));
+                      document.getElementById("desk-cash-panel")?.scrollIntoView({ behavior: "smooth" });
+                    }
                   }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      background: "rgba(140, 107, 184, 0.15)",
-                      padding: "8px 16px",
-                      borderRadius: 14,
-                      fontWeight: 700,
-                      color: "var(--accent)",
-                      fontSize: "0.95rem",
-                    }}
-                  >
-                    <span style={{ fontSize: 20 }}>🧑‍✈️</span>
-                    <span>Poste Conducteur</span>
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: 12,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.1em",
-                      color: "var(--muted)",
-                      fontWeight: 800,
-                    }}
-                  >
-                    ▲ Avant de l'autocar
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      background: "var(--bg)",
-                      padding: "6px 12px",
-                      borderRadius: 10,
-                      border: "1px solid var(--border)",
-                      fontSize: "0.9rem",
-                    }}
-                  >
-                    <span>🚪</span>
-                    <span>Porte d'accès</span>
-                  </div>
-                </div>
-
-                {/* Sièges organisés par rangées avec allée centrale */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {(() => {
-                    const left = manifest.layout.seats_per_row[0] ?? 2;
-                    const right = manifest.layout.seats_per_row[1] ?? 2;
-                    const rowsMap = new Map<number, typeof filteredSeats>();
-                    filteredSeats.forEach((s) => {
-                      rowsMap.set(s.row_no, [...(rowsMap.get(s.row_no) ?? []), s]);
-                    });
-                    const sorted = [...rowsMap.entries()].sort((a, b) => a[0] - b[0]);
-
-                    return sorted.map(([rowNo, rowSeats]) => (
-                      <div
-                        key={rowNo}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: `repeat(${left}, 1fr) 36px repeat(${right}, 1fr)`,
-                          gap: 8,
-                          alignItems: "stretch",
-                        }}
-                      >
-                        {rowSeats.map((s) => {
-                          const col = s.col_no <= left ? s.col_no : s.col_no + 1;
-                          const { ticket, isOccupied, isSelected } = s;
-
-                          if (isOccupied && ticket) {
-                            return (
-                              <div
-                                key={s.id}
-                                style={{
-                                  gridColumn: col,
-                                  background: "rgba(30, 41, 59, 0.6)",
-                                  border: "1px solid rgba(59, 130, 246, 0.4)",
-                                  borderRadius: 12,
-                                  padding: "8px 6px",
-                                  display: "flex",
-                                  flexDirection: "column",
-                                  justifyContent: "center",
-                                  alignItems: "center",
-                                  textAlign: "center",
-                                  minHeight: 70,
-                                }}
-                                title={`${ticket.passenger_name} · Siège #${s.seat_no}`}
-                              >
-                                <span className="mono" style={{ fontWeight: 800, fontSize: "1.1rem", color: "#60a5fa" }}>
-                                  #{s.seat_no}
-                                </span>
-                                <span
-                                  style={{
-                                    fontSize: "0.82rem",
-                                    fontWeight: 700,
-                                    color: "#f1f5f9",
-                                    lineHeight: 1.2,
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                    maxWidth: "100%",
-                                  }}
-                                >
-                                  {ticket.passenger_name.split(" ")[0]}
-                                </span>
-                                <span className="badge" style={{ fontSize: "0.68rem", padding: "1px 4px", marginTop: 2 }}>
-                                  {ticket.status === "boarded" ? "À bord" : "Payé"}
-                                </span>
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <button
-                              key={s.id}
-                              type="button"
-                              onClick={() => {
-                                setWalkIn((prev) => ({ ...prev, seat_id: s.id }));
-                                document.getElementById("desk-cash-panel")?.scrollIntoView({ behavior: "smooth" });
-                              }}
-                              style={{
-                                gridColumn: col,
-                                background: isSelected
-                                  ? "linear-gradient(135deg, rgba(140, 107, 184, 0.4), rgba(16, 185, 129, 0.3))"
-                                  : "rgba(16, 185, 129, 0.08)",
-                                border: isSelected ? "2px solid var(--accent)" : "1.5px dashed #10b981",
-                                borderRadius: 12,
-                                padding: "8px 6px",
-                                display: "flex",
-                                flexDirection: "column",
-                                justifyContent: "center",
-                                alignItems: "center",
-                                cursor: "pointer",
-                                minHeight: 70,
-                                boxShadow: isSelected ? "0 0 20px rgba(140, 107, 184, 0.6)" : "none",
-                                transition: "all 0.2s ease",
-                              }}
-                            >
-                              <span className="mono" style={{ fontWeight: 800, fontSize: "1.1rem", color: "#10b981" }}>
-                                #{s.seat_no}
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: "0.82rem",
-                                  fontWeight: 700,
-                                  color: isSelected ? "var(--accent)" : "#10b981",
-                                }}
-                              >
-                                {isSelected ? "✓ Choisi" : "Libre"}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ));
-                  })()}
-                </div>
-
-                <div
-                  style={{
-                    marginTop: 18,
-                    paddingTop: 10,
-                    borderTop: "1px dashed var(--border)",
-                    textAlign: "center",
-                    fontSize: 11,
-                    color: "var(--muted)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.1em",
-                  }}
-                >
-                  ▼ Arrière du véhicule (Issue de secours)
-                </div>
+                />
               </div>
             )}
           </section>
@@ -870,6 +801,33 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
                     placeholder="+237 6..."
                     value={walkIn.phone}
                     onChange={(e) => setWalkIn({ ...walkIn, phone: e.target.value })}
+                  />
+                </div>
+
+                <div className="desk-form-field">
+                  <label htmlFor="walkin-email">Adresse Email</label>
+                  <input
+                    id="walkin-email"
+                    type="email"
+                    className="desk-form-input"
+                    placeholder="client@domaine.com"
+                    value={walkIn.email}
+                    onChange={(e) => setWalkIn({ ...walkIn, email: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 10 }}>
+                <div className="desk-form-field">
+                  <label htmlFor="walkin-account">
+                    🔗 Compte Veltron du passager <span className="muted" style={{ fontWeight: 400 }}>(partage direct du billet)</span>
+                  </label>
+                  <input
+                    id="walkin-account"
+                    className="desk-form-input"
+                    placeholder="Ex: @nathan ou email du compte"
+                    value={walkIn.passenger_account}
+                    onChange={(e) => setWalkIn({ ...walkIn, passenger_account: e.target.value })}
                   />
                 </div>
 
@@ -1001,56 +959,132 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
               </div>
 
               <div
+                id="desk-printable-ticket"
                 style={{
-                  background: "var(--bg)",
-                  border: "1px dashed var(--border)",
-                  borderRadius: 14,
-                  padding: 16,
+                  background: "#ffffff",
+                  color: "#0f172a",
+                  border: "2px solid #cbd5e1",
+                  borderRadius: 16,
+                  padding: 20,
                   display: "flex",
                   flexDirection: "column",
-                  gap: 10,
+                  gap: 14,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className="muted">Numéro de Billet :</span>
-                  <strong className="mono" style={{ fontSize: "1.2rem", color: "var(--accent)" }}>
-                    {issuedReceipt.reference}
-                  </strong>
+                {/* En-tête officiel agence */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: "2px dashed #e2e8f0", paddingBottom: 12 }}>
+                  <div>
+                    <span style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.06em", color: "#64748b", fontWeight: 700 }}>
+                      Billet de Transport Officiel
+                    </span>
+                    <h4 style={{ margin: "2px 0 0", fontSize: "1.25rem", color: "#0f172a", fontWeight: 800 }}>
+                      {issuedReceipt.agency_name || "COMPAGNIE DE TRANSPORT"}
+                    </h4>
+                    <span className="mono" style={{ fontSize: "0.85rem", color: "#64748b" }}>
+                      Immatriculation bus : <strong>{issuedReceipt.plate || "Standard"}</strong>
+                    </span>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span className="mono" style={{ fontSize: "1.1rem", fontWeight: 800, color: "#2563eb", display: "block" }}>
+                      {issuedReceipt.reference}
+                    </span>
+                    <span style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                      {formatTime(issuedReceipt.departs_at, tz, i18n.language)} · {formatDay(issuedReceipt.departs_at, tz, i18n.language)}
+                    </span>
+                  </div>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className="muted">Passager :</span>
-                  <strong style={{ fontSize: "1.08rem" }}>{issuedReceipt.passenger_name}</strong>
+                {/* Corps avec QR Code et détails */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "center" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: "0.95rem" }}>
+                    <div>
+                      <span style={{ fontSize: "0.78rem", color: "#64748b", display: "block" }}>Passager</span>
+                      <strong style={{ fontSize: "1.15rem", color: "#0f172a" }}>{issuedReceipt.passenger_name}</strong>
+                      {issuedReceipt.veltron_account && (
+                        <span style={{ display: "block", fontSize: "0.8rem", color: "#2563eb" }}>
+                          Compte Veltron : @{issuedReceipt.veltron_account}
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <span style={{ fontSize: "0.78rem", color: "#64748b", display: "block" }}>Trajet Direct</span>
+                      <strong style={{ fontSize: "1.05rem", color: "#0f172a" }}>
+                        {issuedReceipt.origin} ➔ {issuedReceipt.destination}
+                      </strong>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                      <div>
+                        <span style={{ fontSize: "0.78rem", color: "#64748b", display: "block" }}>Place réservée</span>
+                        <span style={{ background: "#059669", color: "#ffffff", padding: "4px 10px", borderRadius: 8, fontWeight: 800, fontSize: "1rem" }}>
+                          Siège #{issuedReceipt.seat_no}
+                        </span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "0.78rem", color: "#64748b", display: "block" }}>Tarif payé</span>
+                        <strong className="mono" style={{ fontSize: "1.1rem", color: "#059669" }}>
+                          {formatMoney(issuedReceipt.amount, issuedReceipt.currency_code, minor, i18n.language)}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* QR Code de validation bord */}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "#f8fafc", padding: 10, borderRadius: 12, border: "1px solid #e2e8f0" }}>
+                    <QRCodeSVG
+                      value={`VLT:${issuedReceipt.reference}:${issuedReceipt.seat_no}`}
+                      size={110}
+                      bgColor="#ffffff"
+                      fgColor="#0f172a"
+                      level="H"
+                    />
+                    <span className="mono" style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                      SCAN EMBARQUEMENT
+                    </span>
+                  </div>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className="muted">Siège Attribué :</span>
-                  <span className="badge mono" style={{ fontSize: "1.1rem", background: "#10b981", color: "#ffffff", padding: "4px 10px" }}>
-                    Siège #{issuedReceipt.seat_no}
-                  </span>
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className="muted">Ligne & Trajet :</span>
-                  <strong>{issuedReceipt.origin} ➔ {issuedReceipt.destination}</strong>
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className="muted">Montant Encaissé :</span>
-                  <strong className="mono" style={{ fontSize: "1.25rem", color: "#10b981" }}>
-                    {formatMoney(issuedReceipt.amount, issuedReceipt.currency_code, minor, i18n.language)} ({issuedReceipt.payment_method.toUpperCase()})
-                  </strong>
+                {/* Sceau d'approbation officiel de l'agence */}
+                <div
+                  style={{
+                    border: "2px solid #059669",
+                    borderRadius: 10,
+                    padding: "8px 14px",
+                    background: "rgba(5, 150, 105, 0.06)",
+                    color: "#065f46",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginTop: 4,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: "1.3rem" }}>🛡️</span>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: "0.85rem", letterSpacing: "0.04em" }}>
+                        APPROUVÉ PAR L'AGENCE · VISA GUICHET OFFICIEL
+                      </div>
+                      <div style={{ fontSize: "0.74rem", color: "#047857" }}>
+                        Paiement certifié ({issuedReceipt.payment_method.toUpperCase()}) · Système Veltron Sécurisé
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mono" style={{ fontSize: "0.78rem", fontWeight: 700, color: "#065f46" }}>
+                    AUTHENTIFIÉ
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
                 <button
                   type="button"
                   className="btn btn--outline"
                   style={{ flex: 1, fontSize: "1rem" }}
                   onClick={() => window.print()}
                 >
-                  🖨️ Imprimer Reçu
+                  🖨️ Imprimer Reçu Nette
                 </button>
                 <button
                   type="button"
@@ -1066,118 +1100,263 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
         )}
       </AnimatePresence>
 
-      {/* ==================== 4. JOURNAL DE CAISSE DU GUICHER (RÉSUMÉ QUOTIDIEN) ==================== */}
-      <section className="card" style={{ marginTop: 12, padding: "18px 22px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+      {/* ==================== 4. JOURNAL DE CAISSE DU GUICHET & CONTRÔLE ANTI-FRAUDE ==================== */}
+      <section className="card" style={{ marginTop: 14, padding: "20px 24px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 14, borderBottom: "1px solid var(--border)", paddingBottom: 14 }}>
           <div>
-            <h4 style={{ margin: 0, fontSize: "1.15rem", display: "flex", alignItems: "center", gap: 8 }}>
-              <span>💼</span> Journal de Caisse & Recettes Guichet
+            <h4 style={{ margin: 0, fontSize: "1.2rem", display: "flex", alignItems: "center", gap: 8 }}>
+              <span>💼</span> Journal de Caisse & Traçabilité Financière Anti-Fraude
             </h4>
             <span className="muted" style={{ fontSize: "0.88rem" }}>
-              Suivez le cumul des encaissements en espèces et paiements au comptoir en direct.
+              Suivi et clôture hermétique de chaque départ, archivage DB mémorisé et auditable.
             </span>
           </div>
 
-          <button
-            type="button"
-            className="btn btn--outline"
-            onClick={loadCashJournal}
-            style={{ fontSize: "0.92rem", fontWeight: 700 }}
-          >
-            {showJournal ? "🔄 Actualiser la caisse" : "📊 Consulter mon journal de caisse"}
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              className={`btn btn--sm ${activeJournalTab === "trip" ? "" : "btn--outline"}`}
+              onClick={() => setActiveJournalTab("trip")}
+              style={{ fontWeight: 700 }}
+            >
+              📦 Départ Sélectionné
+            </button>
+            <button
+              type="button"
+              className={`btn btn--sm ${activeJournalTab === "archives" ? "" : "btn--outline"}`}
+              onClick={() => {
+                setActiveJournalTab("archives");
+                loadArchives();
+              }}
+              style={{ fontWeight: 700 }}
+            >
+              🗄️ Archives & Historique Départs
+            </button>
+            <button
+              type="button"
+              className={`btn btn--sm ${activeJournalTab === "daily" ? "" : "btn--outline"}`}
+              onClick={() => {
+                setActiveJournalTab("daily");
+                loadCashJournal();
+              }}
+              style={{ fontWeight: 700 }}
+            >
+              📊 Caisse Quotidienne
+            </button>
+          </div>
         </div>
 
-        {showJournal && cashJournal && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
-            {/* KPI Cards */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <div className="card" style={{ padding: "14px", background: "rgba(16, 185, 129, 0.1)", borderColor: "#10b981" }}>
-                <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>💵 Espèces (Cash)</span>
-                <strong style={{ fontSize: "1.25rem", color: "#059669" }}>
-                  {formatMoney(cashJournal.summary.total_cash, cashJournal.currency_code, minor, i18n.language)}
+        {/* ONGLET 1 : DÉPART SÉLECTIONNÉ */}
+        {activeJournalTab === "trip" && current && (
+          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <strong style={{ fontSize: "1.05rem" }}>
+                  Trajet : {current.origin} ➔ {current.destination} ({formatTime(current.departs_at, tz, i18n.language)})
                 </strong>
-              </div>
-
-              <div className="card" style={{ padding: "14px", background: "rgba(245, 158, 11, 0.1)", borderColor: "#f59e0b" }}>
-                <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>📱 Mobile Money</span>
-                <strong style={{ fontSize: "1.25rem", color: "#d97706" }}>
-                  {formatMoney(cashJournal.summary.total_momo, cashJournal.currency_code, minor, i18n.language)}
-                </strong>
-              </div>
-
-              <div className="card" style={{ padding: "14px", background: "rgba(59, 130, 246, 0.1)", borderColor: "#3b82f6" }}>
-                <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>💳 Carte / TPE</span>
-                <strong style={{ fontSize: "1.25rem", color: "#2563eb" }}>
-                  {formatMoney(cashJournal.summary.total_card, cashJournal.currency_code, minor, i18n.language)}
-                </strong>
-              </div>
-
-              <div className="card" style={{ padding: "14px", background: "rgba(140, 107, 184, 0.15)", borderColor: "var(--accent)" }}>
-                <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>
-                  🏷️ Total Ventes ({cashJournal.summary.total_sales_count})
+                <span className="muted" style={{ display: "block", fontSize: "0.85rem" }}>
+                  Bus : {current.plate} · Départ #{current.id}
                 </span>
-                <strong style={{ fontSize: "1.25rem", color: "var(--accent)" }}>
-                  {formatMoney(cashJournal.summary.total_amount, cashJournal.currency_code, minor, i18n.language)}
-                </strong>
               </div>
+
+              {tripJournal?.is_closed ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="badge" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid #10b981", fontSize: "0.9rem", padding: "6px 12px" }}>
+                    🔒 Caisse Clôturée & Scellée
+                  </span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="badge" style={{ background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", border: "1px solid #f59e0b", fontSize: "0.9rem", padding: "6px 12px" }}>
+                    🟢 Caisse Ouverte (Ventes en cours)
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    style={{ background: "#dc2626", color: "#ffffff", fontWeight: 700 }}
+                    onClick={() => {
+                      setCountedCash(String(tripJournal?.sales?.cash_amount ?? ""));
+                      setShowCloseModal(true);
+                    }}
+                  >
+                    🔒 Clôturer la Caisse de ce Départ
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Tableau des ventes du guichet */}
+            {/* Chiffres clés du départ */}
+            {tripJournal?.sales && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                <div className="card" style={{ padding: 14, background: "rgba(16, 185, 129, 0.1)", borderColor: "#10b981" }}>
+                  <span className="muted" style={{ fontSize: "0.82rem", display: "block" }}>💵 Espèces Théoriques Guichet</span>
+                  <strong style={{ fontSize: "1.3rem", color: "#059669" }}>
+                    {formatMoney(tripJournal.sales.cash_amount, manifest?.currency_code || "XAF", minor, i18n.language)}
+                  </strong>
+                </div>
+
+                <div className="card" style={{ padding: 14, background: "rgba(245, 158, 11, 0.1)", borderColor: "#f59e0b" }}>
+                  <span className="muted" style={{ fontSize: "0.82rem", display: "block" }}>📱 Mobile Money</span>
+                  <strong style={{ fontSize: "1.3rem", color: "#d97706" }}>
+                    {formatMoney(tripJournal.sales.momo_amount, manifest?.currency_code || "XAF", minor, i18n.language)}
+                  </strong>
+                </div>
+
+                <div className="card" style={{ padding: 14, background: "rgba(59, 130, 246, 0.1)", borderColor: "#3b82f6" }}>
+                  <span className="muted" style={{ fontSize: "0.82rem", display: "block" }}>💳 Carte Bancaire</span>
+                  <strong style={{ fontSize: "1.3rem", color: "#2563eb" }}>
+                    {formatMoney(tripJournal.sales.card_amount, manifest?.currency_code || "XAF", minor, i18n.language)}
+                  </strong>
+                </div>
+
+                <div className="card" style={{ padding: 14, background: "rgba(140, 107, 184, 0.15)", borderColor: "var(--accent)" }}>
+                  <span className="muted" style={{ fontSize: "0.82rem", display: "block" }}>
+                    🏷️ Recette Totale Départ ({tripJournal.sales.total_tickets} billets)
+                  </span>
+                  <strong style={{ fontSize: "1.3rem", color: "var(--accent)" }}>
+                    {formatMoney(tripJournal.sales.total_amount, manifest?.currency_code || "XAF", minor, i18n.language)}
+                  </strong>
+                </div>
+              </div>
+            )}
+
+            {/* Détails de clôture certifiée */}
+            {tripJournal?.is_closed && tripJournal.journal && (
+              <div
+                style={{
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 12,
+                  padding: 16,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <span className="muted" style={{ fontSize: "0.85rem" }}>Clôturé par : </span>
+                    <strong>{tripJournal.journal.closed_by_name || "Secrétaire guichet"}</strong>
+                    <span className="muted" style={{ fontSize: "0.85rem", marginLeft: 10 }}>
+                      le {new Date(tripJournal.journal.closed_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="muted" style={{ fontSize: "0.85rem" }}>Écart physique de caisse : </span>
+                    <strong
+                      className="mono"
+                      style={{
+                        color: Number(tripJournal.journal.cash_difference) === 0 ? "#10b981" : "#ef4444",
+                        fontSize: "1.05rem",
+                      }}
+                    >
+                      {Number(tripJournal.journal.cash_difference) >= 0 ? "+" : ""}
+                      {formatMoney(Number(tripJournal.journal.cash_difference), manifest?.currency_code || "XAF", minor, i18n.language)}
+                    </strong>
+                  </div>
+                </div>
+
+                {tripJournal.journal.notes && (
+                  <div style={{ fontSize: "0.88rem", background: "rgba(0,0,0,0.03)", padding: 8, borderRadius: 6 }}>
+                    <strong>Note de clôture :</strong> {tripJournal.journal.notes}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.78rem" }}>
+                  <span className="muted">Sceau Anti-Fraude SHA-256 :</span>
+                  <span className="badge mono" style={{ fontSize: "0.74rem", background: "var(--surface)", color: "var(--text)" }}>
+                    {tripJournal.journal.audit_hash}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ONGLET 2 : ARCHIVES & HISTORIQUE DES CAISSES (CONSULTABLE DES MOIS APRÈS) */}
+        {activeJournalTab === "archives" && (
+          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span className="muted" style={{ fontSize: "0.92rem" }}>
+                Historique permanent des caisses de départ clôturées et certifiées dans la base de données.
+              </span>
+              <button type="button" className="btn btn--outline btn--sm" onClick={loadArchives}>
+                🔄 Rafraîchir
+              </button>
+            </div>
+
             <div style={{ overflowX: "auto" }}>
-              <table className="table" style={{ width: "100%", fontSize: "0.92rem" }}>
+              <table className="table" style={{ width: "100%", fontSize: "0.9rem" }}>
                 <thead>
                   <tr>
-                    <th>Réf</th>
-                    <th>Passager</th>
-                    <th>Siège</th>
-                    <th>Trajet</th>
-                    <th>Mode Paiement</th>
-                    <th>Montant</th>
-                    <th>Heure</th>
+                    <th>Date & Heure</th>
+                    <th>Départ</th>
+                    <th>Billets</th>
+                    <th>Espèces</th>
+                    <th>MoMo</th>
+                    <th>Total Départ</th>
+                    <th>Écart Caisse</th>
+                    <th>Clôturé par</th>
+                    <th>Audit Sceau</th>
+                    {["owner", "manager"].includes(agencySession?.role || "") && <th>Action</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {cashJournal.sales.length === 0 ? (
+                  {journalArchives.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>
-                        Aucune vente guichet enregistrée sur les dernières 24h.
+                      <td colSpan={10} className="muted" style={{ textAlign: "center", padding: 24 }}>
+                        Aucun journal de caisse archivé pour le moment. Clôturez un départ pour le voir apparaître ici.
                       </td>
                     </tr>
                   ) : (
-                    cashJournal.sales.map((sl: any) => (
-                      <tr key={sl.id}>
-                        <td className="mono">{sl.reference}</td>
-                        <td>
-                          <strong>{sl.passenger_name || "Client guichet"}</strong>
+                    journalArchives.map((j) => (
+                      <tr key={j.id}>
+                        <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                          {new Date(j.closed_at).toLocaleDateString()} {new Date(j.closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </td>
                         <td>
-                          <span className="badge mono">#{sl.seat_no ?? "—"}</span>
+                          <strong>{j.origin} ➔ {j.destination}</strong>
+                          <div className="muted" style={{ fontSize: "0.78rem" }}>Départ #{j.trip_id}</div>
                         </td>
-                        <td>{sl.origin && sl.destination ? `${sl.origin} ➔ ${sl.destination}` : "—"}</td>
+                        <td className="mono">{j.total_tickets}</td>
+                        <td className="mono" style={{ color: "#059669", fontWeight: 700 }}>
+                          {formatMoney(j.cash_amount, manifest?.currency_code || "XAF", minor, i18n.language)}
+                        </td>
+                        <td className="mono" style={{ color: "#d97706" }}>
+                          {formatMoney(j.momo_amount, manifest?.currency_code || "XAF", minor, i18n.language)}
+                        </td>
+                        <td className="mono" style={{ fontWeight: 800 }}>
+                          {formatMoney(j.total_amount, manifest?.currency_code || "XAF", minor, i18n.language)}
+                        </td>
                         <td>
-                          <span className="badge" style={{ fontSize: "0.8rem" }}>
-                            {sl.provider === "cash"
-                              ? "💵 Espèces"
-                              : sl.provider === "card"
-                                ? "💳 Carte"
-                                : `📱 ${sl.provider}`}
+                          <span
+                            className="badge mono"
+                            style={{
+                              background: Number(j.cash_difference) === 0 ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                              color: Number(j.cash_difference) === 0 ? "#10b981" : "#ef4444",
+                            }}
+                          >
+                            {Number(j.cash_difference) >= 0 ? "+" : ""}{j.cash_difference}
                           </span>
                         </td>
+                        <td>{j.closed_by_name || "Secrétaire"}</td>
                         <td>
-                          <strong className="mono" style={{ color: "#10b981" }}>
-                            {formatMoney(sl.amount, sl.currency_code, minor, i18n.language)}
-                          </strong>
+                          <span className="badge mono" style={{ fontSize: "0.7rem", maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" }} title={j.audit_hash}>
+                            {j.audit_hash ? j.audit_hash.slice(0, 10) + "..." : "—"}
+                          </span>
                         </td>
-                        <td className="muted">
-                          {new Date(sl.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                        </td>
+                        {["owner", "manager"].includes(agencySession?.role || "") && (
+                          <td>
+                            <button
+                              type="button"
+                              className="btn btn--danger btn--sm"
+                              style={{ padding: "3px 8px", fontSize: "0.8rem" }}
+                              onClick={() => handleDeleteArchive(j.id)}
+                            >
+                              🗑️ Supprimer
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))
                   )}
@@ -1186,7 +1365,205 @@ export default function Desk({ embedded = false }: { embedded?: boolean }) {
             </div>
           </div>
         )}
+
+        {/* ONGLET 3 : CAISSE QUOTIDIENNE GÉNÉRALE */}
+        {activeJournalTab === "daily" && (
+          <div style={{ marginTop: 16 }}>
+            {cashJournal ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                  <div className="card" style={{ padding: 14, background: "rgba(16, 185, 129, 0.1)", borderColor: "#10b981" }}>
+                    <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>💵 Espèces Guichet 24h</span>
+                    <strong style={{ fontSize: "1.25rem", color: "#059669" }}>
+                      {formatMoney(cashJournal.summary.total_cash, cashJournal.currency_code, minor, i18n.language)}
+                    </strong>
+                  </div>
+                  <div className="card" style={{ padding: 14, background: "rgba(245, 158, 11, 0.1)", borderColor: "#f59e0b" }}>
+                    <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>📱 Mobile Money</span>
+                    <strong style={{ fontSize: "1.25rem", color: "#d97706" }}>
+                      {formatMoney(cashJournal.summary.total_momo, cashJournal.currency_code, minor, i18n.language)}
+                    </strong>
+                  </div>
+                  <div className="card" style={{ padding: 14, background: "rgba(59, 130, 246, 0.1)", borderColor: "#3b82f6" }}>
+                    <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>💳 Carte Bancaire</span>
+                    <strong style={{ fontSize: "1.25rem", color: "#2563eb" }}>
+                      {formatMoney(cashJournal.summary.total_card, cashJournal.currency_code, minor, i18n.language)}
+                    </strong>
+                  </div>
+                  <div className="card" style={{ padding: 14, background: "rgba(140, 107, 184, 0.15)", borderColor: "var(--accent)" }}>
+                    <span className="muted" style={{ fontSize: "0.85rem", display: "block" }}>
+                      🏷️ Total Ventes ({cashJournal.summary.total_sales_count})
+                    </span>
+                    <strong style={{ fontSize: "1.25rem", color: "var(--accent)" }}>
+                      {formatMoney(cashJournal.summary.total_amount, cashJournal.currency_code, minor, i18n.language)}
+                    </strong>
+                  </div>
+                </div>
+
+                <div style={{ overflowX: "auto" }}>
+                  <table className="table" style={{ width: "100%", fontSize: "0.92rem" }}>
+                    <thead>
+                      <tr>
+                        <th>Réf</th>
+                        <th>Passager</th>
+                        <th>Siège</th>
+                        <th>Trajet</th>
+                        <th>Mode Paiement</th>
+                        <th>Montant</th>
+                        <th>Heure</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cashJournal.sales.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 20 }}>
+                            Aucune vente guichet enregistrée sur les dernières 24h.
+                          </td>
+                        </tr>
+                      ) : (
+                        cashJournal.sales.map((sl: any) => (
+                          <tr key={sl.id}>
+                            <td className="mono">{sl.reference}</td>
+                            <td><strong>{sl.passenger_name || "Client guichet"}</strong></td>
+                            <td><span className="badge mono">#{sl.seat_no ?? "—"}</span></td>
+                            <td>{sl.origin && sl.destination ? `${sl.origin} ➔ ${sl.destination}` : "—"}</td>
+                            <td>
+                              <span className="badge" style={{ fontSize: "0.8rem" }}>
+                                {sl.provider === "cash" ? "💵 Espèces" : sl.provider === "card" ? "💳 Carte" : `📱 ${sl.provider}`}
+                              </span>
+                            </td>
+                            <td>
+                              <strong className="mono" style={{ color: "#10b981" }}>
+                                {formatMoney(sl.amount, sl.currency_code, minor, i18n.language)}
+                              </strong>
+                            </td>
+                            <td className="muted">
+                              {new Date(sl.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: "center", padding: 20 }}>
+                <button type="button" className="btn btn--outline" onClick={loadCashJournal}>
+                  Charger le rapport général de la journée
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </section>
+
+      {/* MODAL DE CLÔTURE DE CAISSE DE DÉPART */}
+      <AnimatePresence>
+        {showCloseModal && tripJournal && (
+          <div className="desk-receipt-overlay" onClick={() => setShowCloseModal(false)}>
+            <motion.div
+              className="card"
+              style={{ maxWidth: 520, width: "90%", padding: 24, background: "var(--surface)" }}
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 style={{ margin: "0 0 10px", fontSize: "1.3rem", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>🔒</span> Clôture Certifiée de la Caisse Départ
+              </h3>
+              <p className="muted" style={{ fontSize: "0.92rem", margin: "0 0 16px" }}>
+                Cette opération scelle les comptes de ce départ dans la base de données avec un hash cryptographique SHA-256 de traçabilité anti-fraude.
+              </p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div style={{ background: "rgba(16, 185, 129, 0.1)", border: "1px solid #10b981", borderRadius: 10, padding: 14 }}>
+                  <span className="muted" style={{ fontSize: "0.85rem" }}>Recette Théorique en Espèces :</span>
+                  <div className="mono" style={{ fontSize: "1.5rem", fontWeight: 800, color: "#059669" }}>
+                    {formatMoney(tripJournal.sales.cash_amount, manifest?.currency_code || "XAF", minor, i18n.language)}
+                  </div>
+                </div>
+
+                <div className="desk-form-field">
+                  <label htmlFor="modal-cash-counted" style={{ fontWeight: 700 }}>
+                    💵 Montant physique compté dans la caisse *
+                  </label>
+                  <input
+                    id="modal-cash-counted"
+                    type="number"
+                    min={0}
+                    step={100}
+                    className="desk-form-input"
+                    value={countedCash}
+                    onChange={(e) => setCountedCash(e.target.value)}
+                    placeholder="Montant physique en espèces..."
+                    required
+                  />
+                </div>
+
+                {countedCash !== "" && (
+                  <div
+                    style={{
+                      background: Number(countedCash) === Number(tripJournal.sales.cash_amount) ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                      border: `1px solid ${Number(countedCash) === Number(tripJournal.sales.cash_amount) ? "#10b981" : "#ef4444"}`,
+                      borderRadius: 8,
+                      padding: "10px 14px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <span>Écart de caisse :</span>
+                    <strong
+                      className="mono"
+                      style={{
+                        fontSize: "1.1rem",
+                        color: Number(countedCash) === Number(tripJournal.sales.cash_amount) ? "#10b981" : "#ef4444",
+                      }}
+                    >
+                      {Number(countedCash) - Number(tripJournal.sales.cash_amount) >= 0 ? "+" : ""}
+                      {formatMoney(Number(countedCash) - Number(tripJournal.sales.cash_amount), manifest?.currency_code || "XAF", minor, i18n.language)}
+                      {Number(countedCash) === Number(tripJournal.sales.cash_amount) ? " (Caisse Juste ✓)" : " (Écart détecté)"}
+                    </strong>
+                  </div>
+                )}
+
+                <div className="desk-form-field">
+                  <label htmlFor="modal-close-notes">Observations / Justifications éventuelles</label>
+                  <textarea
+                    id="modal-close-notes"
+                    className="desk-form-input"
+                    rows={2}
+                    value={closeNotes}
+                    onChange={(e) => setCloseNotes(e.target.value)}
+                    placeholder="Ex: RAS ou 1 billet déchiré refusé..."
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                  <button
+                    type="button"
+                    className="btn btn--outline"
+                    style={{ flex: 1 }}
+                    onClick={() => setShowCloseModal(false)}
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ flex: 1.5, background: "#dc2626", color: "#ffffff", fontWeight: 700 }}
+                    onClick={handleCloseTripJournal}
+                  >
+                    🛡️ Sceller et Clôturer
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

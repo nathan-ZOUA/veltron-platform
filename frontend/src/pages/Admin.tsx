@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import ThemeToggle from "../components/ThemeToggle";
+import AngeAssistant from "../components/AngeAssistant";
 import { api, ApiError } from "../core/api";
 import { useAuth } from "../core/auth";
 import { formatMoney } from "../core/format";
@@ -285,6 +286,20 @@ export default function Admin() {
         ) : (
           <>
             <header className="page__header">
+              <div className="card" style={{ marginBottom: 18, background: "linear-gradient(135deg, rgba(124,58,237,0.22), rgba(217,119,6,0.16))", border: "1px solid #fbbf24" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <img src="/media/ange-ai-avatar.jpg" alt="Ange IA" style={{ width: 52, height: 52, borderRadius: "50%", border: "2px solid #fbbf24" }} />
+                    <div>
+                      <span className="badge">👑 Assistant IA Fondateur · ANGE</span>
+                      <h3 style={{ margin: "4px 0 2px" }}>Diagnostic Prédictif/Curatif & Optimisation de Rentabilité</h3>
+                      <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
+                        Ange surveille les bases de données isolées de chaque agence, détecte les anomalies avant qu'elles n'impactent les passagers et vous propose des leviers pour augmenter vos commissions de 0,5 %.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <span className="badge">Propriétaire VELTRON · {platformAdmin.first_name}</span>
               <h1 className="display display-xl">Supervision des agences & Alertes IA</h1>
               <p className="lead">
@@ -675,6 +690,7 @@ export default function Admin() {
           </>
         )}
       </main>
+      <AngeAssistant realm="supervision" />
     </div>
   );
 }

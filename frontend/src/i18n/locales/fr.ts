@@ -28,6 +28,63 @@ export const fr = {
     loyalty: "Fidélité",
   },
 
+  search: {
+    tabTrips: "Rechercher un trajet",
+    tabAgencies: "Trouver une agence",
+    origin: "Point de départ",
+    originPlaceholder: "Ville de départ (ex: Douala)",
+    destination: "Destination",
+    destinationPlaceholder: "Où allez-vous ? (ex: Yaoundé)",
+    date: "Date du voyage",
+    today: "Aujourd'hui",
+    tomorrow: "Demain",
+    btnSearchTrips: "Rechercher des trajets",
+    agencyPlaceholder: "Nom d'agence, ville ou pays (ex: Équateur, Baobab...)",
+    btnSearchAgencies: "Trouver l'agence",
+    swap: "Inverser départ et arrivée",
+    resultsTitle: "départ(s) disponible(s)",
+    noResults: "Aucun départ programmé sur cette ligne à cette date.",
+    askAnge: "Demander conseil à l'Agent IA Ange ✨",
+    bookSeat: "Choisir ma place & Réserver",
+    freeSeats: "places libres",
+    allAgencies: "Voir toutes les agences",
+  },
+
+  cards: {
+    sectionTitle: "Tous vos services voyageurs en un clic",
+    sectionNote: "Choisissez une action ci-dessous : chaque service est directement connecté aux compagnies vérifiées sur VELTRON.",
+    intercity: {
+      tag: "Voyages interurbains",
+      title: "Réserver un billet de bus",
+      text: "Trouvez les lignes disponibles, choisissez votre place sur le plan du bus et recevez votre billet avec QR code de sécurité.",
+      cta: "Trouver un trajet",
+    },
+    rental: {
+      tag: "Location & Événements",
+      title: "Louer un autocar avec chauffeur",
+      text: "Excursions, séminaires, mariages ou voyages d'affaires : demandez un devis immédiat auprès des compagnies partenaires.",
+      cta: "Demander un devis",
+    },
+    sales: {
+      tag: "Bourse & Vente de bus",
+      title: "Acheter un bus vérifié",
+      text: "Parcourez les offres de bus neufs et d'occasion contrôlés par les professionnels du réseau VELTRON.",
+      cta: "Voir les annonces",
+    },
+    tracking: {
+      tag: "Télémétrie en direct",
+      title: "Suivi GPS & Trafic temps réel",
+      text: "Localisez votre bus en temps réel sur la carte, visualisez sa vitesse en km/h et recevez les alertes de trafic.",
+      cta: "Lancer le suivi",
+    },
+    loyalty: {
+      tag: "Programme fidélité",
+      title: "Points & Récompenses Voyageur",
+      text: "Cumulez des points VELTRON à chaque trajet pour débloquer des réductions sur vos prochains voyages.",
+      cta: "Voir mes points",
+    },
+  },
+
   common: {
     simulated: "SIMULÉ",
     demoData: "Données de démonstration",

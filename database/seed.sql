@@ -8,17 +8,57 @@
 SET NAMES utf8mb4;
 USE veltron;
 
--- ---------- Devises, pays, villes (le reste du monde : world_countries.sql) ----------
+-- ---------- Devises & 25 Pays Africains (5 par région) ----------
 INSERT INTO currencies (code, name, symbol, minor_units) VALUES
   ('XAF', 'Franc CFA (CEMAC)', 'FCFA', 0),
   ('XOF', 'Franc CFA (UEMOA)', 'FCFA', 0),
-  ('EUR', 'Euro', '€', 2);
+  ('KES', 'Shilling kenyan', 'KSh', 2),
+  ('ETB', 'Birr éthiopien', 'Br', 2),
+  ('UGX', 'Shilling ougandais', 'USh', 0),
+  ('TZS', 'Shilling tanzanien', 'TSh', 2),
+  ('RWF', 'Franc rwandais', 'FRw', 0),
+  ('MAD', 'Dirham marocain', 'DH', 2),
+  ('DZD', 'Dinar algérien', 'DA', 2),
+  ('TND', 'Dinar tunisien', 'DT', 3),
+  ('EGP', 'Livre égyptienne', 'E£', 2),
+  ('MRU', 'Ouguiya mauritanien', 'UM', 2),
+  ('ZAR', 'Rand sud-africain', 'R', 2),
+  ('AOA', 'Kwanza angolais', 'Kz', 2),
+  ('ZMW', 'Kwacha zambien', 'ZK', 2),
+  ('MZN', 'Metical mozambicain', 'MT', 2),
+  ('NAD', 'Dollar namibien', 'N$', 2);
 
-INSERT INTO countries (iso2, name_fr, name_en, default_currency, phone_prefix) VALUES
-  ('CM', 'Cameroun',      'Cameroon',    'XAF', '+237'),
-  ('SN', 'Sénégal',       'Senegal',     'XOF', '+221'),
-  ('CI', 'Côte d''Ivoire','Côte d''Ivoire', 'XOF', '+225'),
-  ('FR', 'France',        'France',      'EUR', '+33');
+INSERT INTO countries (id, iso2, name_fr, name_en, region, default_currency, phone_prefix) VALUES
+  -- Afrique Centrale (5)
+  (1, 'CM', 'Cameroun', 'Cameroon', 'Afrique Centrale', 'XAF', '+237'),
+  (2, 'GA', 'Gabon', 'Gabon', 'Afrique Centrale', 'XAF', '+241'),
+  (3, 'CD', 'RD Congo', 'DR Congo', 'Afrique Centrale', 'XAF', '+243'),
+  (4, 'CG', 'Congo-Brazzaville', 'Congo', 'Afrique Centrale', 'XAF', '+242'),
+  (5, 'TD', 'Tchad', 'Chad', 'Afrique Centrale', 'XAF', '+235'),
+  -- Afrique de l''Ouest (5)
+  (6, 'SN', 'Sénégal', 'Senegal', 'Afrique de l''Ouest', 'XOF', '+221'),
+  (7, 'CI', 'Côte d''Ivoire', 'Côte d''Ivoire', 'Afrique de l''Ouest', 'XOF', '+225'),
+  (8, 'NG', 'Nigeria', 'Nigeria', 'Afrique de l''Ouest', 'XOF', '+234'),
+  (9, 'GH', 'Ghana', 'Ghana', 'Afrique de l''Ouest', 'XOF', '+233'),
+  (10, 'ML', 'Mali', 'Mali', 'Afrique de l''Ouest', 'XOF', '+223'),
+  -- Afrique de l''Est (5)
+  (11, 'KE', 'Kenya', 'Kenya', 'Afrique de l''Est', 'KES', '+254'),
+  (12, 'ET', 'Éthiopie', 'Ethiopia', 'Afrique de l''Est', 'ETB', '+251'),
+  (13, 'UG', 'Ouganda', 'Uganda', 'Afrique de l''Est', 'UGX', '+256'),
+  (14, 'TZ', 'Tanzanie', 'Tanzania', 'Afrique de l''Est', 'TZS', '+255'),
+  (15, 'RW', 'Rwanda', 'Rwanda', 'Afrique de l''Est', 'RWF', '+250'),
+  -- Afrique du Nord (5)
+  (16, 'MA', 'Maroc', 'Morocco', 'Afrique du Nord', 'MAD', '+212'),
+  (17, 'DZ', 'Algérie', 'Algeria', 'Afrique du Nord', 'DZD', '+213'),
+  (18, 'TN', 'Tunisie', 'Tunisia', 'Afrique du Nord', 'TND', '+216'),
+  (19, 'EG', 'Égypte', 'Egypt', 'Afrique du Nord', 'EGP', '+20'),
+  (20, 'MR', 'Mauritanie', 'Mauritania', 'Afrique du Nord', 'MRU', '+222'),
+  -- Afrique Australe (5)
+  (21, 'ZA', 'Afrique du Sud', 'South Africa', 'Afrique Australe', 'ZAR', '+27'),
+  (22, 'AO', 'Angola', 'Angola', 'Afrique Australe', 'AOA', '+244'),
+  (23, 'ZM', 'Zambie', 'Zambia', 'Afrique Australe', 'ZMW', '+260'),
+  (24, 'MZ', 'Mozambique', 'Mozambique', 'Afrique Australe', 'MZN', '+258'),
+  (25, 'NA', 'Namibie', 'Namibia', 'Afrique Australe', 'NAD', '+264');
 
 INSERT INTO cities (country_id, name, timezone, lat, lng) VALUES
   (1, 'Douala',        'Africa/Douala',   4.051100,   9.767900),
@@ -28,16 +68,13 @@ INSERT INTO cities (country_id, name, timezone, lat, lng) VALUES
   (1, 'Limbé',         'Africa/Douala',   4.024000,   9.202000),
   (1, 'Bertoua',       'Africa/Douala',   4.577200,  13.684700),
   (1, 'Garoua',        'Africa/Douala',   9.301400,  13.397700),
-  (2, 'Dakar',         'Africa/Dakar',   14.716700, -17.467700),
-  (2, 'Thiès',         'Africa/Dakar',   14.791000, -16.935900),
-  (2, 'Saint-Louis',   'Africa/Dakar',   16.017900, -16.489600),
-  (2, 'Touba',         'Africa/Dakar',   14.850000, -15.883300),
-  (3, 'Abidjan',       'Africa/Abidjan',  5.360000,  -4.008300),
-  (3, 'Yamoussoukro',  'Africa/Abidjan',  6.827600,  -5.289300),
-  (3, 'Bouaké',        'Africa/Abidjan',  7.690600,  -5.030000),
-  (4, 'Paris',         'Europe/Paris',   48.856600,   2.352200),
-  (4, 'Lyon',          'Europe/Paris',   45.764000,   4.835700),
-  (4, 'Marseille',     'Europe/Paris',   43.296500,   5.369800);
+  (6, 'Dakar',         'Africa/Dakar',   14.716700, -17.467700),
+  (6, 'Thiès',         'Africa/Dakar',   14.791000, -16.935900),
+  (6, 'Saint-Louis',   'Africa/Dakar',   16.017900, -16.489600),
+  (6, 'Touba',         'Africa/Dakar',   14.850000, -15.883300),
+  (7, 'Abidjan',       'Africa/Abidjan',  5.360000,  -4.008300),
+  (7, 'Yamoussoukro',  'Africa/Abidjan',  6.827600,  -5.289300),
+  (7, 'Bouaké',        'Africa/Abidjan',  7.690600,  -5.030000);
 
 -- ---------- Utilisateurs de test ----------
 INSERT INTO users (id, email, first_name, last_name, locale, platform_role, is_seed) VALUES
@@ -69,8 +106,8 @@ INSERT INTO agencies (id, public_code, slug, name, country_id, city_name, curren
   (2, 'AG-BAO002', 'baobab-lines', 'Baobab Lines', 2, 'Dakar', 'XOF', '#3FA796', 'contact@baobab.test', '+221700000002',
       'Sénégal, Dakar, Plateau, Avenue Léopold Sédar Senghor 12', 'senegaldakarplateauleopoldsedarsenghor12',
       'approved', 88, UTC_TIMESTAMP(), 'active', 20, 100, 1000, 40, 10, 50, UTC_TIMESTAMP(), 1),
-  (3, 'AG-RHO003', 'rhone-cars', 'Rhône Cars', 4, 'Lyon', 'EUR', '#D9822B', 'contact@rhone.test', '+33400000003',
-      'France, Lyon, 3e arrondissement, 25 rue de la Part-Dieu', 'francelyon3earrondissement25delapartdieu',
+  (3, 'AG-RHO003', 'rhone-cars', 'Rhône Cars', 7, 'Abidjan', 'XOF', '#D9822B', 'contact@rhone.test', '+33400000003',
+      'Côte d''Ivoire, Abidjan, Plateau, Avenue Chardy', 'cotedivoireabidjanplateauavenuechardy',
       'approved', 95, UTC_TIMESTAMP(), 'active', 20, 100, 200, 30, 10, 50, UTC_TIMESTAMP(), 1);
 
 -- Grille de remboursement (aucun remboursement après le délai de coupure de 2 h)
@@ -129,8 +166,8 @@ INSERT INTO routes (id, agency_id, origin_city_id, dest_city_id, distance_km, du
   (3, 1,  1,  3, 280, 270),   -- Douala → Bafoussam
   (4, 2,  8, 10, 265, 270),   -- Dakar → Saint-Louis
   (5, 2,  8, 11, 195, 180),   -- Dakar → Touba
-  (6, 3, 15, 16, 465, 330),   -- Paris → Lyon
-  (7, 3, 16, 17, 315, 210);   -- Lyon → Marseille
+  (6, 3, 12, 13, 230, 180),   -- Abidjan → Yamoussoukro
+  (7, 3, 12, 14, 350, 270);   -- Abidjan → Bouaké
 
 -- ---------- Départs (relatifs à l'heure d'import, en UTC) ----------
 -- Le départ 9 est EN ROUTE (parti il y a 1 h) pour essayer le suivi en temps réel.
@@ -243,3 +280,19 @@ INSERT INTO platform_commissions (trip_id, agency_id, seats_filled, seat_capacit
 
 -- Purge des données de test avant la production (à exécuter volontairement) :
 --   DELETE FROM users WHERE is_seed = 1;  -- puis supprimer les agences is_seed = 1
+
+-- =============================================================================
+-- DONNÉES DE TEST ENRICHIES VELTRON v5 (Multi-Agences, Statistiques & Récupération)
+-- =============================================================================
+
+INSERT IGNORE INTO agency_tenant_databases (agency_id, public_code, db_identifier, isolation_mode, encryption_salt, tables_provisioned, integrity_status)
+SELECT id, public_code, CONCAT('veltron_tenant_', LOWER(REPLACE(public_code, '-', '_'))), 'isolated_partition', SHA2(CONCAT(public_code, '-salt-2026'), 256), 20, 'healthy'
+FROM agencies;
+
+INSERT IGNORE INTO creator_vault_keys (owner_email, stealth_passkey, recovery_pin)
+VALUES ('najnathan23@gmail.com', 'NZ-VELTRON-MASTER-2026', '237999');
+
+INSERT IGNORE INTO access_recovery_requests (recovery_type, agency_code, target_email, target_phone, delivery_channel, legal_id_proof, status, temp_reset_token)
+VALUES
+  ('agency_owner_sos', 'AG-EQT001', 'direction@equateur-voyages.cm', '+237 699 00 11 22', 'founder_override', 'RCCM-CM-DLA-2024-B-1092', 'pending', NULL),
+  ('staff_self_reset', 'AG-EQT001', 'desk.equateur@veltron.test', '+237 677 44 55 66', 'sms', NULL, 'resolved', 'RST-STAFF-8821');

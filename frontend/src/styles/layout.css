@@ -89,14 +89,17 @@
   position: absolute;
   inset-inline-end: 0;
   top: calc(100% + 10px);
-  min-width: 170px;
+  min-width: 180px;
   padding: var(--space-2);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   list-style: none;
   margin: 0;
+  z-index: 1000;
 }
 
 .lang__option {
@@ -105,20 +108,27 @@
   justify-content: space-between;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  padding: 8px 12px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.92rem;
   text-align: start;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .lang__option:hover {
   background: var(--surface-hover);
+  color: var(--accent);
 }
 
 .lang__option[aria-checked="true"] {
   color: var(--accent-soft);
   font-weight: 700;
+  background: var(--surface-hover);
 }
 
 /* ---------- Pied de page ---------- */

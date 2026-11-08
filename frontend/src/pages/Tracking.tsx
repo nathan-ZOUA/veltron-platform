@@ -242,6 +242,22 @@ export default function Tracking() {
             )}
 
             {/* Indicateurs clés (Vitesse, Distance restante, Arrivée prévue vs recalculée) */}
+            {active.current_location_label && (
+              <div className="current-exact-location-banner" style={{ marginBottom: 16 }}>
+                <span className="location-beacon-icon">📍</span>
+                <div className="location-beacon-content">
+                  <span className="location-beacon-title">Localisation Exacte en Direct</span>
+                  <strong className="location-beacon-place">{active.current_location_label}</strong>
+                  {active.next_waypoint && (
+                    <span className="location-beacon-next">
+                      Prochain point de passage : <strong>{active.next_waypoint.name}</strong> (km {active.next_waypoint.km})
+                      {active.next_waypoint.estimated_time && ` · Prévu à ${formatTime(active.next_waypoint.estimated_time, active.timezone, i18n.language)}`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="kpi-grid">
               <div className="card kpi-card">
                 <span className="muted">Vitesse actuelle</span>
@@ -354,6 +370,33 @@ export default function Tracking() {
                     {active.destination}
                   </text>
 
+                  {/* Points de passage / jalons intermédiaires sur le tracé */}
+                  {active.waypoints?.map((wp, i) => {
+                    if (i === 0 || i === (active.waypoints?.length ?? 1) - 1) return null;
+                    const p = pointAlongRoute(wp.pct);
+                    const isPassed = wp.status === "passed";
+                    const isCurrent = wp.status === "current";
+                    return (
+                      <g key={wp.id} transform={`translate(${p.x} ${p.y})`}>
+                        <circle
+                          r={isCurrent ? "6" : "4.5"}
+                          fill={isPassed ? "#10b981" : isCurrent ? "#3b82f6" : "#64748b"}
+                          stroke="#ffffff"
+                          strokeWidth="1.5"
+                        />
+                        <text
+                          y={i % 2 === 0 ? -14 : 18}
+                          textAnchor="middle"
+                          fontSize="9"
+                          fontWeight={isCurrent ? "bold" : "normal"}
+                          fill={isCurrent ? "#3b82f6" : isPassed ? "#10b981" : "#94a3b8"}
+                        >
+                          {wp.name.split(" (")[0]}
+                        </text>
+                      </g>
+                    );
+                  })}
+
                   <g transform={`translate(${pos.x} ${pos.y})`}>
                     <circle r="18" className="bus-pulse" />
                     <circle r="12" className="bus-dot" />
@@ -364,6 +407,53 @@ export default function Tracking() {
                 <div className="progress" aria-hidden="true" style={{ marginTop: 12 }}>
                   <div className="progress__bar" style={{ width: `${active.progress_pct}%` }} />
                 </div>
+
+                {/* Liste chronologique et détaillée des étapes et repères du trajet */}
+                {active.waypoints && active.waypoints.length > 0 && (
+                  <div className="tracking-waypoints-section">
+                    <h3 className="subheading" style={{ margin: "0 0 6px", fontSize: "0.95rem" }}>
+                      🚩 Étapes & Points de passage du trajet ({active.waypoints.length} repères)
+                    </h3>
+                    <div className="waypoints-timeline">
+                      {active.waypoints.map((wp, idx) => {
+                        const isPassed = wp.status === "passed";
+                        const isCurrent = wp.status === "current";
+                        return (
+                          <div
+                            key={wp.id}
+                            className={`waypoint-item ${isPassed ? "is-passed" : ""} ${isCurrent ? "is-current" : ""}`}
+                          >
+                            <div className="waypoint-node">
+                              {isPassed ? "✓" : isCurrent ? "📍" : idx + 1}
+                            </div>
+                            <div className="waypoint-info">
+                              <span className="waypoint-name">{wp.name}</span>
+                              <span className="waypoint-sub">
+                                km {wp.km} / {active.distance_km} km
+                                {wp.estimated_time &&
+                                  ` · Passage estimé : ${formatTime(wp.estimated_time, active.timezone, i18n.language)}`}
+                              </span>
+                            </div>
+                            <div className="waypoint-status-tag">
+                              {isPassed ? (
+                                <span className="badge badge--ok">Franchi ✓</span>
+                              ) : isCurrent ? (
+                                <span
+                                  className="badge"
+                                  style={{ background: "#2563eb", color: "#ffffff", fontWeight: 700 }}
+                                >
+                                  Bus ici en ce moment 🟢
+                                </span>
+                              ) : (
+                                <span className="badge">À venir</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Panneau latéral : Chauffeur + Journal temps réel */}

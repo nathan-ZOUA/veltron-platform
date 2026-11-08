@@ -556,15 +556,43 @@
 @media print {
   .site-header,
   .site-footer,
-  .no-print {
+  .no-print,
+  .desk-trip-selector,
+  .desk-mode-bar,
+  .desk-search-filter-bar,
+  .desk-bus-map,
+  .desk-cash-panel,
+  .desk-receipt-overlay button,
+  .nav-strip,
+  .theme-toggle {
     display: none !important;
   }
-  body {
-    background: #ffffff;
+  body, html {
+    background: #ffffff !important;
+    color: #000000 !important;
   }
   .ticket {
     box-shadow: none;
     border: 1px solid #999;
+  }
+  .desk-receipt-overlay {
+    position: static !important;
+    background: none !important;
+    padding: 0 !important;
+  }
+  .desk-receipt-card {
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+  #desk-printable-ticket {
+    box-shadow: none !important;
+    border: 2px solid #000000 !important;
+    page-break-inside: avoid !important;
+    margin: 0 auto !important;
+    max-width: 650px !important;
   }
 }
 
@@ -1000,4 +1028,54 @@
   flex-direction: column;
   gap: 16px;
 }
+
+/* Thème clair optimisé pour tous les guichets et tableaux de bord */
+[data-theme="light"] .desk-timetable-container {
+  background: #ffffff;
+  border-color: #ddd5f0;
+  box-shadow: 0 4px 20px rgba(109, 40, 217, 0.05);
+}
+
+[data-theme="light"] .desk-timetable-card {
+  background: #f9f7fd;
+  border-color: #ddd5f0;
+  color: #160d2e;
+}
+
+[data-theme="light"] .desk-timetable-card:hover {
+  background: #f3eefc;
+  border-color: #7c3aed;
+}
+
+[data-theme="light"] .desk-timetable-card.is-active {
+  background: #f3ecff;
+  border-color: #7c3aed;
+  box-shadow: 0 4px 18px rgba(124, 58, 237, 0.15);
+}
+
+[data-theme="light"] .desk-main-panel,
+[data-theme="light"] .desk-sidebar {
+  background: #ffffff;
+  border-color: #ddd5f0;
+  color: #160d2e;
+}
+
+[data-theme="light"] .desk-selected-seat-banner--empty {
+  background: #f5f2fb;
+  border-color: #ddd5f0;
+  color: #5b4d7c;
+}
+
+[data-theme="light"] .call-row {
+  background: #ffffff;
+  border-color: #ddd5f0;
+  color: #160d2e;
+}
+
+[data-theme="light"] .desk-receipt-card {
+  background: #ffffff;
+  color: #160d2e;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+}
+
 

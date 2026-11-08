@@ -20,7 +20,7 @@ function route(string $method, string $pattern, callable $handler): void
     $ROUTES[] = [$method, $regex, $handler];
 }
 
-foreach (['catalog', 'auth', 'booking', 'services', 'desk', 'agency', 'agency_workspace', 'chat', 'boarding'] as $module) {
+foreach (['catalog', 'auth', 'booking', 'services', 'desk', 'agency', 'agency_workspace', 'chat', 'boarding', 'ai_ange'] as $module) {
     require __DIR__ . "/../src/routes/$module.php";
 }
 
@@ -75,5 +75,6 @@ try {
     json_out(array_merge(['error' => $e->errorCode, 'message' => $e->getMessage()], $e->extra), $e->status);
 } catch (Throwable $e) {
     error_log('[VELTRON] ' . $e::class . ': ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
-    json_out(['error' => 'server', 'message' => 'Erreur interne du serveur.'], 500);
+    $detail = is_local() ? ['detail' => $e->getMessage(), 'file' => $e->getFile() . ':' . $e->getLine()] : [];
+    json_out(array_merge(['error' => 'server', 'message' => 'Erreur interne du serveur.'], $detail), 500);
 }

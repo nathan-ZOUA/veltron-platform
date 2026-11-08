@@ -351,3 +351,178 @@ route('POST', '/api/agency/chat/module-request/{id}/respond', function (array $p
     json_out(['ok' => true, 'status' => $payload['status'], 'payload' => $payload]);
 });
 
+// =============================================================================
+// FONCTIONS WHATSAPP PRO : NOTES VOCALES HD, PHOTOS & APPELS VOCAUX DIRECTS
+// =============================================================================
+
+// Envoi d'un message vocal audio (style WhatsApp Note Vocale HD)
+route('POST', '/api/agency/chat/groups/{id}/voice', function (array $p) {
+    [$s, $g] = require_group_member((int) $p['id']);
+    $in = input();
+    $audioData = (string) ($in['audio_data'] ?? '');
+    $duration = max(1, (int) ($in['duration_sec'] ?? 1));
+
+    if ($audioData === '') {
+        fail(422, 'empty_audio', 'Données audio manquantes.');
+    }
+
+    $payload = json_encode([
+        'audio_data' => $audioData,
+        'duration_sec' => $duration,
+        'mime' => (string) ($in['mime'] ?? 'audio/webm'),
+    ]);
+
+    q("INSERT INTO chat_messages (group_id, sender_user_id, kind, key_version, iv, ciphertext)
+       VALUES (?, ?, 'voice', NULL, NULL, ?)", [$g['id'], $s['id'], $payload]);
+    $msgId = (int) db()->lastInsertId();
+
+    q('UPDATE chat_members SET last_read_id = GREATEST(last_read_id, ?) WHERE group_id = ? AND user_id = ?',
+        [$msgId, $g['id'], $s['id']]);
+
+    json_out(['id' => $msgId, 'kind' => 'voice', 'duration_sec' => $duration], 201);
+});
+
+// Envoi d'une photo / média (style WhatsApp Photo)
+route('POST', '/api/agency/chat/groups/{id}/media', function (array $p) {
+    [$s, $g] = require_group_member((int) $p['id']);
+    $in = input();
+    $imageData = (string) ($in['image_data'] ?? '');
+    $caption = trim((string) ($in['caption'] ?? ''));
+
+    if ($imageData === '') {
+        fail(422, 'empty_image', 'Image manquante.');
+    }
+
+    $payload = json_encode([
+        'image_data' => $imageData,
+        'caption' => $caption,
+    ]);
+
+    q("INSERT INTO chat_messages (group_id, sender_user_id, kind, key_version, iv, ciphertext)
+       VALUES (?, ?, 'image', NULL, NULL, ?)", [$g['id'], $s['id'], $payload]);
+    $msgId = (int) db()->lastInsertId();
+
+    q('UPDATE chat_members SET last_read_id = GREATEST(last_read_id, ?) WHERE group_id = ? AND user_id = ?',
+        [$msgId, $g['id'], $s['id']]);
+
+    json_out(['id' => $msgId, 'kind' => 'image'], 201);
+});
+
+// Gestion des Appels Vocaux WhatsApp HD (Signalisation & État)
+route('POST', '/api/agency/chat/groups/{id}/call/initiate', function (array $p) {
+    [$s, $g] = require_group_member((int) $p['id']);
+    $in = input();
+    $sdpOffer = (string) ($in['sdp_offer'] ?? '');
+
+    // Clôturer les anciens appels pendants
+    q("UPDATE chat_calls SET status = 'missed', ended_at = UTC_TIMESTAMP() WHERE group_id = ? AND status = 'calling'", [$g['id']]);
+
+    q("INSERT INTO chat_calls (group_id, caller_id, status, sdp_offer, started_at)
+       VALUES (?, ?, 'calling', ?, UTC_TIMESTAMP())", [$g['id'], $s['id'], $sdpOffer]);
+    $callId = (int) db()->lastInsertId();
+
+    $callerName = trim($s['first_name'] . ' ' . $s['last_name']);
+    $msgText = "📞 {$callerName} a lancé un appel vocal HD WhatsApp...";
+    q("INSERT INTO chat_messages (group_id, sender_user_id, kind, ciphertext)
+       VALUES (?, ?, 'call_started', ?)", [$g['id'], $s['id'], json_encode([
+           'call_id' => $callId,
+           'caller_id' => $s['id'],
+           'caller_name' => $callerName,
+           'status' => 'calling'
+       ])]);
+
+    json_out([
+        'ok' => true,
+        'call_id' => $callId,
+        'caller_id' => $s['id'],
+        'caller_name' => $callerName,
+        'status' => 'calling',
+    ], 201);
+});
+
+route('GET', '/api/agency/chat/groups/{id}/call/active', function (array $p) {
+    [$s, $g] = require_group_member((int) $p['id']);
+    $call = one("SELECT c.*, u.first_name, u.last_name, st.role, st.custom_role
+                 FROM chat_calls c
+                 JOIN users u ON u.id = c.caller_id
+                 LEFT JOIN agency_staff st ON st.agency_id = ? AND st.user_id = c.caller_id
+                 WHERE c.group_id = ? AND c.status IN ('calling','connected')
+                 ORDER BY c.id DESC LIMIT 1", [$s['agency_id'], $g['id']]);
+
+    if (!$call) {
+        json_out(['active_call' => null]);
+    }
+
+    json_out([
+        'active_call' => [
+            'id' => (int) $call['id'],
+            'group_id' => (int) $call['group_id'],
+            'caller_id' => (int) $call['caller_id'],
+            'caller_name' => trim($call['first_name'] . ' ' . $call['last_name']),
+            'caller_role' => $call['custom_role'] ?: $call['role'],
+            'status' => $call['status'],
+            'sdp_offer' => $call['sdp_offer'],
+            'sdp_answer' => $call['sdp_answer'],
+            'started_at' => $call['started_at'],
+            'connected_at' => $call['connected_at'],
+        ]
+    ]);
+});
+
+route('POST', '/api/agency/chat/groups/{id}/call/{call_id}/signal', function (array $p) {
+    [$s, $g] = require_group_member((int) $p['id']);
+    $callId = (int) $p['call_id'];
+    $in = input();
+    $action = (string) ($in['action'] ?? ''); // 'answer', 'ice_candidate', 'connect'
+
+    $call = one("SELECT * FROM chat_calls WHERE id = ? AND group_id = ?", [$callId, $g['id']])
+        ?? fail(404, 'call_not_found', 'Appel introuvable.');
+
+    if ($action === 'answer') {
+        $sdpAnswer = (string) ($in['sdp_answer'] ?? '');
+        q("UPDATE chat_calls SET receiver_id = ?, sdp_answer = ?, status = 'connected', connected_at = UTC_TIMESTAMP() WHERE id = ?",
+            [$s['id'], $sdpAnswer, $callId]);
+    } elseif ($action === 'ice') {
+        $candidate = $in['candidate'] ?? null;
+        if ($candidate) {
+            $existing = json_decode($call['candidates'] ?: '[]', true) ?: [];
+            $existing[] = $candidate;
+            q("UPDATE chat_calls SET candidates = ? WHERE id = ?", [json_encode($existing), $callId]);
+        }
+    }
+
+    json_out(['ok' => true]);
+});
+
+route('POST', '/api/agency/chat/groups/{id}/call/{call_id}/end', function (array $p) {
+    [$s, $g] = require_group_member((int) $p['id']);
+    $callId = (int) $p['call_id'];
+    $in = input();
+    $reason = (string) ($in['reason'] ?? 'ended'); // 'ended', 'rejected', 'missed'
+
+    $call = one("SELECT * FROM chat_calls WHERE id = ? AND group_id = ?", [$callId, $g['id']]);
+    if ($call && in_array($call['status'], ['calling', 'connected'], true)) {
+        $duration = 0;
+        if ($call['connected_at']) {
+            $tConn = strtotime($call['connected_at']);
+            $duration = max(0, time() - $tConn);
+        }
+        $newStatus = ($call['status'] === 'calling' && $reason !== 'ended') ? $reason : 'ended';
+
+        q("UPDATE chat_calls SET status = ?, ended_at = UTC_TIMESTAMP(), duration_sec = ? WHERE id = ?",
+            [$newStatus, $duration, $callId]);
+
+        $min = floor($duration / 60);
+        $sec = $duration % 60;
+        $durStr = sprintf('%02d:%02d', $min, $sec);
+        $logText = $duration > 0
+            ? "📞 Appel vocal HD terminé · Durée : {$durStr}"
+            : "📞 Appel manqué / sans réponse";
+
+        q("INSERT INTO chat_messages (group_id, sender_user_id, kind, ciphertext)
+           VALUES (?, ?, 'call_ended', ?)", [$g['id'], $s['id'], $logText]);
+    }
+
+    json_out(['ok' => true]);
+});
+

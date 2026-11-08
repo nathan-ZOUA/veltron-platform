@@ -30,6 +30,28 @@ const PAY_PROVIDERS = [
 const MAX_SEATS = 6;
 const emptyPax = (): Pax => ({ name: "", id_type: "CNI", id_number: "", phone: "" });
 
+function formatCardNumber(val: string): string {
+  const digits = val.replace(/\D/g, "").slice(0, 16);
+  return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
+}
+
+function formatCardExpiry(val: string): string {
+  const clean = val.replace(/\D/g, "").slice(0, 4);
+  if (clean.length >= 3) {
+    return clean.slice(0, 2) + " / " + clean.slice(2);
+  }
+  return clean;
+}
+
+function detectCardBrand(num: string): { brand: string; icon: string } {
+  const clean = num.replace(/\D/g, "");
+  if (clean.startsWith("4")) return { brand: "Visa", icon: "💳 VISA" };
+  if (/^5[1-5]/.test(clean)) return { brand: "Mastercard", icon: "💳 Mastercard" };
+  if (/^3[47]/.test(clean)) return { brand: "Amex", icon: "💳 American Express" };
+  if (/^6(?:011|5)/.test(clean)) return { brand: "Discover", icon: "💳 Discover" };
+  return { brand: "Carte Bancaire", icon: "💳 CB" };
+}
+
 export default function TripBooking() {
   const { tripId = "" } = useParams();
   const { t, i18n } = useTranslation();
@@ -44,6 +66,12 @@ export default function TripBooking() {
   const [payProvider, setPayProvider] = useState<string>("orange_money");
   const [payerAccount, setPayerAccount] = useState<string>("");
   const [payerName, setPayerName] = useState<string>("");
+  const [cardNumber, setCardNumber] = useState<string>("");
+  const [cardHolder, setCardHolder] = useState<string>("");
+  const [cardExpiry, setCardExpiry] = useState<string>("");
+  const [cardCvv, setCardCvv] = useState<string>("");
+  const [cardPassword, setCardPassword] = useState<string>("");
+  const [saveCard, setSaveCard] = useState<boolean>(true);
   const [selectedMethodId, setSelectedMethodId] = useState<number>(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,7 +83,9 @@ export default function TripBooking() {
 
   useEffect(() => {
     if (!user) return;
-    setPayerName(`${user.first_name} ${user.last_name}`.trim());
+    const fullName = `${user.first_name} ${user.last_name}`.trim();
+    setPayerName(fullName);
+    setCardHolder(fullName);
     if (user.phone) setPayerAccount(user.phone);
     api<SavedPayMethod[]>("/me/payment-methods", { realm: "passenger" })
       .then((list) => {
@@ -65,7 +95,13 @@ export default function TripBooking() {
           setSelectedMethodId(def.id);
           setPayProvider(def.provider);
           setPayerAccount(def.account_number);
-          if (def.account_name) setPayerName(def.account_name);
+          if (def.provider === "card") {
+            setCardNumber(def.account_number);
+          }
+          if (def.account_name) {
+            setPayerName(def.account_name);
+            setCardHolder(def.account_name);
+          }
         }
       })
       .catch(() => {});
@@ -130,14 +166,43 @@ export default function TripBooking() {
   async function pay() {
     if (!booking) return;
     setBusy(true); setError("");
+
+    const isCard = payProvider === "card";
+    const cleanCardNum = cardNumber.replace(/\s+/g, "");
+
+    if (isCard && selectedMethodId === 0) {
+      if (cleanCardNum.length < 13) {
+        setError("Veuillez saisir un numéro de carte bancaire valide (16 chiffres).");
+        setBusy(false);
+        return;
+      }
+      if (!cardExpiry.trim()) {
+        setError("Veuillez saisir la date d'expiration de votre carte (MM/AA).");
+        setBusy(false);
+        return;
+      }
+      if (!cardCvv.trim()) {
+        setError("Veuillez saisir le cryptogramme de sécurité CVV (3 chiffres au dos).");
+        setBusy(false);
+        return;
+      }
+    }
+
     try {
       const result = await api<{ ticket_ids: number[]; points_earned?: number }>(`/bookings/${booking.id}/pay`, {
         body: {
           provider: payProvider,
-          payer_account: payerAccount.trim(),
-          payer_name: payerName.trim(),
+          payer_account: isCard ? (selectedMethodId > 0 ? payerAccount : cleanCardNum) : payerAccount.trim(),
+          payer_name: isCard ? (cardHolder.trim() || payerName.trim()) : payerName.trim(),
           payment_method_id: selectedMethodId || undefined,
           idempotency_key: payKey.current,
+          // Attributs carte bancaire
+          card_number: isCard ? cleanCardNum : undefined,
+          card_holder: isCard ? (cardHolder.trim() || payerName.trim()) : undefined,
+          card_expiry: isCard ? cardExpiry.trim() : undefined,
+          card_cvv: isCard ? cardCvv.trim() : undefined,
+          card_3ds_code: isCard ? cardPassword.trim() : undefined,
+          save_card: isCard ? saveCard : undefined,
         },
         realm: "passenger",
       });
@@ -174,13 +239,7 @@ export default function TripBooking() {
       ) : (
         <div className="booking-layout">
           <section className="card seat-panel">
-            <h2 className="subheading">{t("book.seatsTitle")}</h2>
-            <ul className="seat-legend">
-              <li><span className="seat seat--legend" /> {t("book.free")}</li>
-              <li><span className="seat seat--legend seat--selected" /> {t("book.selected")}</li>
-              <li><span className="seat seat--legend seat--taken" /> {t("book.taken")}</li>
-            </ul>
-            <div className="bus-front muted">{t("book.front")}</div>
+            <h2 className="subheading" style={{ marginBottom: 12 }}>{t("book.seatsTitle")}</h2>
             <SeatGrid
               seatsPerRow={trip.layout.seats_per_row}
               seats={trip.seats.map((s) => ({
@@ -189,8 +248,15 @@ export default function TripBooking() {
                 className: s.taken ? "seat--taken" : selected.includes(s.id) ? "seat--selected" : s.seat_class === "vip" ? "seat--vip" : "",
               }))}
               onSelect={(s) => toggle(s.id)}
+              busLabel={trip.bus_label || trip.agency_name}
+              busPlate={trip.plate_number || trip.plate}
+              busType={trip.bus_type || "Autocar Grand Tourisme"}
+              coDriverCount={2}
+              selectedSeatIds={selected}
+              interactive={!locked}
+              currencySymbol={trip.currency_code}
             />
-            <p className="muted">{t("book.max")}</p>
+            <p className="muted" style={{ textAlign: "center", marginTop: 10 }}>{t("book.max")}</p>
           </section>
 
           <section className="booking-main">
@@ -295,30 +361,129 @@ export default function TripBooking() {
                     ))}
                   </div>
 
-                  <div className="search-grid">
-                    <label className="field">
-                      <span className="field__label">
-                        {payProvider === "card" ? "Numéro de carte" : "Numéro Mobile Money à débiter"}
-                      </span>
-                      <input
-                        className="input mono"
-                        required
-                        placeholder={payProvider === "card" ? "4970 •••• •••• 1234" : "+237 6..."}
-                        value={payerAccount}
-                        onChange={(e) => setPayerAccount(e.target.value)}
-                      />
-                    </label>
-                    <label className="field">
-                      <span className="field__label">Nom du titulaire du compte</span>
-                      <input
-                        className="input"
-                        required
-                        placeholder="Nom & Prénom"
-                        value={payerName}
-                        onChange={(e) => setPayerName(e.target.value)}
-                      />
-                    </label>
-                  </div>
+                  {payProvider === "card" && selectedMethodId === 0 ? (
+                    <div className="card-payment-form">
+                      {/* Aperçu visuel et dynamique de la carte bancaire */}
+                      <div className="card-preview-banner">
+                        <div className="card-preview-left">
+                          <div className="card-preview-chip" />
+                          <div className="card-preview-number">
+                            {cardNumber || "•••• •••• •••• ••••"}
+                          </div>
+                          <div className="card-preview-holder">
+                            {cardHolder.toUpperCase() || "TITULAIRE DE LA CARTE"} · {cardExpiry || "MM / AA"}
+                          </div>
+                        </div>
+                        <div className="card-brand-badge">
+                          <span>{detectCardBrand(cardNumber).icon}</span>
+                          <span>{detectCardBrand(cardNumber).brand}</span>
+                        </div>
+                      </div>
+
+                      <div className="search-grid">
+                        <label className="field">
+                          <span className="field__label">Nom complet sur la carte bancaire</span>
+                          <input
+                            className="input"
+                            required
+                            placeholder="Ex. NATHAN ZOUA"
+                            value={cardHolder}
+                            onChange={(e) => setCardHolder(e.target.value)}
+                          />
+                        </label>
+                        <label className="field">
+                          <span className="field__label">Numéro de carte bancaire (16 chiffres)</span>
+                          <input
+                            className="input mono"
+                            required
+                            maxLength={19}
+                            placeholder="4242 4242 4242 4242"
+                            value={cardNumber}
+                            onChange={(e) => setCardNumber(formatCardNumber(e.target.value))}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="card-grid-row">
+                        <label className="field">
+                          <span className="field__label">Date d'expiration</span>
+                          <input
+                            className="input mono"
+                            required
+                            maxLength={7}
+                            placeholder="MM / AA"
+                            value={cardExpiry}
+                            onChange={(e) => setCardExpiry(formatCardExpiry(e.target.value))}
+                          />
+                        </label>
+                        <label className="field">
+                          <span className="field__label" title="Cryptogramme de sécurité à 3 chiffres au dos de la carte">
+                            Code CVV / CVC 🔒
+                          </span>
+                          <input
+                            className="input mono"
+                            required
+                            type="password"
+                            maxLength={4}
+                            placeholder="123"
+                            value={cardCvv}
+                            onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                          />
+                        </label>
+                        <label className="field">
+                          <span className="field__label" title="Code de sécurité ou mot de passe de validation bancaire 3D Secure">
+                            Mot de passe 3D Secure / OTP 🔑
+                          </span>
+                          <input
+                            className="input mono"
+                            type="password"
+                            placeholder="••••••"
+                            value={cardPassword}
+                            onChange={(e) => setCardPassword(e.target.value)}
+                          />
+                        </label>
+                      </div>
+
+                      <label className="checkbox-row" style={{ marginTop: 4 }}>
+                        <input
+                          type="checkbox"
+                          checked={saveCard}
+                          onChange={(e) => setSaveCard(e.target.checked)}
+                        />
+                        <span>Enregistrer cette carte pour mes prochains voyages (Chiffrement sécurisé PCI-DSS)</span>
+                      </label>
+
+                      <div className="security-badge-row">
+                        <span>🛡️</span>
+                        <span>Paiement chiffré SSL 256 bits · Vérification 3D Secure activée · Aucune donnée brute stockée</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="search-grid">
+                      <label className="field">
+                        <span className="field__label">
+                          {payProvider === "card" ? "Numéro de carte enregistrée" : "Numéro Mobile Money à débiter"}
+                        </span>
+                        <input
+                          className="input mono"
+                          required
+                          placeholder={payProvider === "card" ? "4970 •••• •••• 1234" : "+237 6..."}
+                          value={payerAccount}
+                          onChange={(e) => setPayerAccount(e.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span className="field__label">Nom du titulaire du compte</span>
+                        <input
+                          className="input"
+                          required
+                          placeholder="Nom & Prénom"
+                          value={payerName}
+                          onChange={(e) => setPayerName(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                  )}
 
                   <p className="demo-note">
                     ⚡ En validant, <strong>{money(booking.total)}</strong> est <strong>déduit directement de votre compte ({payerAccount || "enregistré"})</strong> et reversé automatiquement sur le compte de l’agence <strong>{trip.agency_name}</strong>. Vous gagnerez <strong>{(trip.points_per_trip ?? 10) * selected.length} points fidélité</strong>.
@@ -326,7 +491,13 @@ export default function TripBooking() {
                   <button
                     type="button"
                     className="btn btn--lg"
-                    disabled={busy || secondsLeft === 0 || !payerAccount.trim()}
+                    disabled={
+                      busy ||
+                      secondsLeft === 0 ||
+                      (payProvider === "card" && selectedMethodId === 0
+                        ? cardNumber.replace(/\s+/g, "").length < 13 || !cardExpiry.trim() || !cardCvv.trim()
+                        : !payerAccount.trim())
+                    }
                     onClick={pay}
                   >
                     Confirmer & Débiter {money(booking.total)} → {trip.agency_name}

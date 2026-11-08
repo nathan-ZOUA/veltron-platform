@@ -100,6 +100,9 @@ export default function BoardingCallWorkspace() {
   const [viewMode, setViewMode] = useState<"seats" | "list">("seats");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
+  // Sélection multiple de passagers lors de l'appel
+  const [selectedSeatIds, setSelectedSeatIds] = useState<number[]>([]);
+
   // Siège absent sélectionné pour remplacement immédiat
   const [absentSeatModal, setAbsentSeatModal] = useState<ManifestSeat | null>(null);
   const [replacementTab, setReplacementTab] = useState<"transfer" | "cash">("transfer");
@@ -173,6 +176,14 @@ export default function BoardingCallWorkspace() {
     setNotice("");
     setError("");
 
+    // Si le siège est libre (non réservé), ouvrir le panneau d'attribution directe
+    if (seat.state === "unbooked") {
+      setNotice(`ℹ️ Place libre #${seat.seat_no} sélectionnée. Vous pouvez y faire monter un passager sans bagage ou vendre un billet en direct.`);
+      setAbsentSeatModal(seat);
+      loadCandidates(selectedTripId);
+      return;
+    }
+
     // Si le siège est déjà absent (rouge) et qu'on clique dessus, on ouvre directement le volet de remplacement
     if (seat.state === "absent") {
       setAbsentSeatModal(seat);
@@ -180,31 +191,54 @@ export default function BoardingCallWorkspace() {
       return;
     }
 
+    // Bascule intelligente : si déjà à bord et qu'on clique en mode à bord, bascule en 'reset' pour corriger une erreur
+    const targetStatus = (seat.state === "boarded" && callMode === "boarded") ? "reset" : callMode;
+
     try {
       const res = await api<{ ok: boolean; action: string; seat_id: number; passenger_name?: string }>(
         `/boarding/trips/${selectedTripId}/seat-click`,
         {
           body: {
             seat_id: seat.id,
-            target_status: callMode,
+            target_status: targetStatus,
           },
           realm: "agency",
         }
       );
 
-      if (callMode === "boarded") {
+      if (targetStatus === "boarded") {
         setNotice(`✓ Siège #${seat.seat_no} (${res.passenger_name || "Passager"}) marqué À BORD.`);
-      } else if (callMode === "absent") {
+      } else if (targetStatus === "absent") {
         setNotice(`⚠️ Siège #${seat.seat_no} (${res.passenger_name || "Passager"}) marqué ABSENT. La place est libérée pour un remplacement.`);
-        // Ouvrir automatiquement le modal de remplacement pour affecter quelqu'un
         setAbsentSeatModal(seat);
         loadCandidates(selectedTripId);
+      } else if (targetStatus === "reset") {
+        setNotice(`↺ Siège #${seat.seat_no} remis en attente.`);
       }
 
       await loadManifest(selectedTripId);
       await loadTrips();
     } catch (err: any) {
       setError(err?.message || "Action impossible sur ce siège.");
+    }
+  }
+
+  // Action groupée sur les passagers sélectionnés
+  async function handleBatchStatus(status: "boarded" | "absent" | "reset") {
+    if (!selectedTripId || selectedSeatIds.length === 0) return;
+    setNotice("");
+    setError("");
+    try {
+      await api(`/boarding/trips/${selectedTripId}/batch-status`, {
+        body: { seat_ids: selectedSeatIds, target_status: status },
+        realm: "agency",
+      });
+      setNotice(`✓ ${selectedSeatIds.length} passager(s) marqués ${status === "boarded" ? "À BORD" : status === "absent" ? "ABSENT(S)" : "RÉINITIALISÉS"}.`);
+      setSelectedSeatIds([]);
+      await loadManifest(selectedTripId);
+      await loadTrips();
+    } catch (err: any) {
+      setError(err?.message || "Erreur lors de la mise à jour groupée.");
     }
   }
 
@@ -779,7 +813,7 @@ export default function BoardingCallWorkspace() {
                     📋 Appel Nominatif des Passagers & Affectation des Sièges
                   </h3>
                   <p className="muted" style={{ margin: 0, fontSize: "var(--text-xs)" }}>
-                    Cliquez directement sur <strong>« À bord »</strong> devant le nom du voyageur pour faire passer son siège au vert, ou <strong>« Absent »</strong> pour libérer sa place.
+                    Cochez des passagers pour validation groupée ou cliquez directement sur <strong>« À bord »</strong> / <strong>« Absent »</strong> devant le voyageur.
                   </p>
                 </div>
                 <div className="muted" style={{ fontSize: "var(--text-xs)" }}>
@@ -787,10 +821,84 @@ export default function BoardingCallWorkspace() {
                 </div>
               </div>
 
+              {/* BANNIÈRE ACTIONS GROUPÉES SI PASSAGERS SÉLECTIONNÉS */}
+              {selectedSeatIds.length > 0 && (
+                <div
+                  style={{
+                    background: "rgba(59, 130, 246, 0.12)",
+                    border: "1.5px solid #3b82f6",
+                    borderRadius: 10,
+                    padding: "8px 14px",
+                    marginBottom: 12,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    gap: 10,
+                  }}
+                >
+                  <strong style={{ fontSize: "var(--text-xs)", color: "#1d4ed8" }}>
+                    ✓ {selectedSeatIds.length} passager(s) sélectionné(s) :
+                  </strong>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => handleBatchStatus("boarded")}
+                      style={{ background: "#10b981", color: "#fff", border: 0, fontSize: 11, padding: "4px 10px" }}
+                    >
+                      🟢 Valider À BORD
+                    </button>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => handleBatchStatus("absent")}
+                      style={{ background: "#ef4444", color: "#fff", border: 0, fontSize: 11, padding: "4px 10px" }}
+                    >
+                      🔴 Signaler ABSENT(S)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => handleBatchStatus("reset")}
+                      style={{ fontSize: 11, padding: "4px 8px" }}
+                    >
+                      ↺ Remettre en attente
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => setSelectedSeatIds([])}
+                      style={{ fontSize: 11, padding: "4px 8px", color: "var(--muted)" }}
+                    >
+                      ✕ Désélectionner
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div style={{ overflowX: "auto" }}>
                 <table className="table" style={{ width: "100%", fontSize: "var(--text-xs)" }}>
                   <thead>
                     <tr>
+                      <th style={{ width: 40, textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          checked={
+                            filteredSeats.filter((s) => s.ticket).length > 0 &&
+                            selectedSeatIds.length === filteredSeats.filter((s) => s.ticket).length
+                          }
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              const withTicket = filteredSeats.filter((s) => s.ticket).map((s) => s.id);
+                              setSelectedSeatIds(withTicket);
+                            } else {
+                              setSelectedSeatIds([]);
+                            }
+                          }}
+                          title="Sélectionner tous les passagers"
+                        />
+                      </th>
                       <th style={{ width: 70 }}>Siège</th>
                       <th>Passager & Contact</th>
                       <th>Bagages</th>
@@ -803,18 +911,36 @@ export default function BoardingCallWorkspace() {
                       const isBoarded = st.state === "boarded";
                       const isAbsent = st.state === "absent";
                       const isUnbooked = st.state === "unbooked";
+                      const isChecked = selectedSeatIds.includes(st.id);
 
                       return (
                         <tr
                           key={st.id}
                           style={{
-                            background: isBoarded
+                            background: isChecked
+                              ? "rgba(59, 130, 246, 0.1)"
+                              : isBoarded
                               ? "rgba(16, 185, 129, 0.08)"
                               : isAbsent
                               ? "rgba(239, 68, 68, 0.08)"
                               : "transparent",
                           }}
                         >
+                          <td style={{ textAlign: "center" }}>
+                            {st.ticket && (
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedSeatIds((prev) => [...prev, st.id]);
+                                  } else {
+                                    setSelectedSeatIds((prev) => prev.filter((id) => id !== st.id));
+                                  }
+                                }}
+                              />
+                            )}
+                          </td>
                           <td>
                             <strong
                               style={{
@@ -875,19 +1001,18 @@ export default function BoardingCallWorkspace() {
                                 <button
                                   type="button"
                                   className="btn"
-                                  disabled={isBoarded}
-                                  onClick={() => handleDirectSeatAction(st, "boarded")}
+                                  onClick={() => handleDirectSeatAction(st, isBoarded ? "reset" as any : "boarded")}
                                   style={{
-                                    background: isBoarded ? "var(--surface-hover)" : "#10b981",
-                                    color: isBoarded ? "var(--muted)" : "#fff",
+                                    background: isBoarded ? "#059669" : "#10b981",
+                                    color: "#fff",
                                     padding: "4px 10px",
                                     fontSize: 11,
                                     fontWeight: 700,
                                     border: 0,
                                   }}
-                                  title="Marquer présent à bord (son siège devient vert)"
+                                  title={isBoarded ? "Cliquer pour réinitialiser" : "Marquer présent à bord (vert)"}
                                 >
-                                  🟢 À bord
+                                  {isBoarded ? "✓ À bord" : "🟢 À bord"}
                                 </button>
                                 <button
                                   type="button"
@@ -905,6 +1030,17 @@ export default function BoardingCallWorkspace() {
                                 >
                                   🔴 {isAbsent ? "Remplacer" : "Absent"}
                                 </button>
+                                {(isBoarded || isAbsent) && (
+                                  <button
+                                    type="button"
+                                    className="btn btn--ghost"
+                                    onClick={() => handleDirectSeatAction(st, "reset" as any)}
+                                    title="Remettre en attente"
+                                    style={{ fontSize: 11, padding: "4px 6px" }}
+                                  >
+                                    ↺
+                                  </button>
+                                )}
                               </div>
                             ) : (
                               <button

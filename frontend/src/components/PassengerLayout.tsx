@@ -4,12 +4,13 @@ import { useTranslation } from "react-i18next";
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
 import Footer from "./Footer";
+import AngeAssistant from "./AngeAssistant";
 import { useAuth } from "../core/auth";
 
-// Interface dédiée EXCLUSIVEMENT aux passagers (aucun partage d'écran avec les agences)
 export default function PassengerLayout() {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [angeOpen, setAngeOpen] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuth();
 
@@ -40,7 +41,7 @@ export default function PassengerLayout() {
               </span>
               <span>VELTRON</span>
             </Link>
-            <Link to="/" className="portal-pill" title="Revenir au choix Passager / Agence">
+            <Link to="/" className="portal-pill" title="Revenir au choix des 3 Portails">
               Voyageur ⇄
             </Link>
           </div>
@@ -92,8 +93,8 @@ export default function PassengerLayout() {
         <Outlet />
       </main>
 
+      <AngeAssistant realm="passenger" openExternal={angeOpen} onCloseExternal={() => setAngeOpen(false)} />
       <Footer />
     </div>
   );
 }
-

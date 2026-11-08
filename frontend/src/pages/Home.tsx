@@ -5,6 +5,7 @@ import { motion, useScroll, useTransform } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import AnimatedHeading from "../components/AnimatedHeading";
 import Reveal from "../components/Reveal";
+import PassengerSearchBar from "../components/PassengerSearchBar";
 import { AUTHOR } from "../app/config";
 import { useAuth } from "../core/auth";
 import { useBusSimulation } from "../features/demo/useBusSimulation";
@@ -14,57 +15,15 @@ interface TextItem {
   text: string;
 }
 
-const PASSENGER_CARDS = [
-  {
-    to: "/passager/agences",
-    tag: "Billetterie QR",
-    title: "Réservation de billets",
-    text: "Comparez les compagnies par pays, choisissez votre siège sur le plan 2+2 ou 2+3 et obtenez votre billet QR instantané.",
-    cta: "Réserver un billet",
-    bg: "/media/ticket-booking.jpg",
-  },
-  {
-    to: "/passager/location",
-    tag: "Groupes & Événements",
-    title: "Location de bus",
-    text: "Excursion, mariage, séminaire ou délégation : demandez un devis sur mesure avec ou sans chauffeur et suivez les offres.",
-    cta: "Louer un bus",
-    bg: "/media/bus-rental.jpg",
-  },
-  {
-    to: "/passager/achat-bus",
-    tag: "Marché Véhicules",
-    title: "Achat de bus",
-    text: "Parcourez les autocars VIP, bus standards et minibus mis en vente par des compagnies vérifiées sur VELTRON.",
-    cta: "Voir les bus en vente",
-    bg: "/media/bus-purchase.jpg",
-  },
-  {
-    to: "/passager/suivi",
-    tag: "Temps Réel & Trafic",
-    title: "Évolution de mon trajet",
-    text: "Vitesse en km/h, distance restante et heure d’arrivée recalculée selon les bouchons ou incidents déclarés par le chauffeur.",
-    cta: "Suivre un trajet",
-    bg: "/media/tracking.jpg",
-  },
-  {
-    to: "/passager/fidelite",
-    tag: "Récompenses Annuelles",
-    title: "Mes points de fidélité",
-    text: "Cumulez des points à chaque voyage dans la même agence (actualisés chaque année) et débloquez bagages ou billets gratuits.",
-    cta: "Voir mes récompenses",
-    bg: "/media/loyalty.jpg",
-  },
-];
-
 function HeroTicker() {
   const { progress } = useBusSimulation({ durationSeconds: 14, autoRestart: true });
+  const { t } = useTranslation();
 
   return (
     <Link to="/passager/suivi" className="ticker card card--hover" aria-label="Suivi de trajet en temps réel">
       <div className="ticker__head">
         <span className="live-dot" aria-hidden="true" />
-        <span>Trajet en direct · Yaoundé → Douala</span>
+        <span>{t("hero.tickerLabel")} · Yaoundé → Douala</span>
         <span className="badge badge--sim">LIVE KM/H</span>
       </div>
       <div className="ticker__route">
@@ -99,6 +58,49 @@ export default function Home() {
 
   const steps = t("how.items", { returnObjects: true }) as unknown as TextItem[];
 
+  const passengerCards = [
+    {
+      to: "/passager/agences",
+      tag: t("cards.intercity.tag"),
+      title: t("cards.intercity.title"),
+      text: t("cards.intercity.text"),
+      cta: t("cards.intercity.cta"),
+      bg: "/media/ticket-booking.jpg",
+    },
+    {
+      to: "/passager/location",
+      tag: t("cards.rental.tag"),
+      title: t("cards.rental.title"),
+      text: t("cards.rental.text"),
+      cta: t("cards.rental.cta"),
+      bg: "/media/bus-rental.jpg",
+    },
+    {
+      to: "/passager/achat-bus",
+      tag: t("cards.sales.tag"),
+      title: t("cards.sales.title"),
+      text: t("cards.sales.text"),
+      cta: t("cards.sales.cta"),
+      bg: "/media/bus-purchase.jpg",
+    },
+    {
+      to: "/passager/suivi",
+      tag: t("cards.tracking.tag"),
+      title: t("cards.tracking.title"),
+      text: t("cards.tracking.text"),
+      cta: t("cards.tracking.cta"),
+      bg: "/media/tracking.jpg",
+    },
+    {
+      to: "/passager/fidelite",
+      tag: t("cards.loyalty.tag"),
+      title: t("cards.loyalty.title"),
+      text: t("cards.loyalty.text"),
+      cta: t("cards.loyalty.cta"),
+      bg: "/media/loyalty.jpg",
+    },
+  ];
+
   return (
     <>
       {/* ------------------------------ HÉROS PASSAGER ------------------------------ */}
@@ -115,7 +117,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            {user ? `Bienvenue ${user.first_name} · Espace Passager` : "Espace Passager VELTRON"}
+            {user ? `Bienvenue ${user.first_name} · Espace Passager` : t("hero.badge")}
           </motion.span>
 
           <h1 className="display display-hero">
@@ -129,8 +131,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.7 }}
           >
-            Réservez votre siège, louez ou achetez un autocar, suivez l’évolution de votre bus en direct (km/h et bouchons)
-            et cumulez des points de fidélité à chaque voyage.
+            {t("hero.text")}
           </motion.p>
 
           <motion.div
@@ -140,16 +141,27 @@ export default function Home() {
             transition={{ duration: 0.7, delay: 0.9 }}
           >
             <Link to="/passager/agences" className="btn btn--lg">
-              Réserver un billet
+              {t("hero.ctaPrimary")}
             </Link>
             <Link to="/passager/suivi" className="btn btn--lg btn--ghost">
-              Suivre mon trajet en direct
+              {t("hero.ctaSecondary")}
             </Link>
             {!user && (
               <Link to="/passager/connexion" className="btn btn--lg btn--ghost">
-                Se connecter & gagner des points
+                {t("nav.login")}
               </Link>
             )}
+          </motion.div>
+
+          {/* BARRE DE RECHERCHE PRINCIPALE DU PASSAGER (TRAJET & AGENCE) */}
+          <motion.div
+            className="hero__search"
+            initial={{ opacity: 0, y: 22 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.75, delay: 0.95 }}
+            style={{ width: "100%", marginBlock: "var(--space-6) var(--space-4)" }}
+          >
+            <PassengerSearchBar />
           </motion.div>
 
           <motion.div
@@ -166,14 +178,14 @@ export default function Home() {
       <section className="section">
         <div className="container">
           <Reveal>
-            <h2 className="display display-xl section-title">Tous vos services voyageurs en un clic</h2>
+            <h2 className="display display-xl section-title">{t("cards.sectionTitle")}</h2>
             <p className="muted section-note">
-              Choisissez une action ci-dessous : chaque service est directement connecté aux compagnies vérifiées sur VELTRON.
+              {t("cards.sectionNote")}
             </p>
           </Reveal>
 
           <div className="service-cards-grid">
-            {PASSENGER_CARDS.map((card, index) => (
+            {passengerCards.map((card, index) => (
               <Reveal key={card.to} delay={(index % 3) * 0.08} variant="up">
                 <Link
                   to={card.to}

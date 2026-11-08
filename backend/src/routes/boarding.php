@@ -2,10 +2,11 @@
 declare(strict_types=1);
 
 // Module dédié à l'appel des passagers et gestion des sièges en embarquement
-// Accessible aux agents d'embarquement (staff), managers et admins (SANS surcharger la secrétaire)
+// Accessible aux agents d'embarquement (staff), managers, secrétaires et admins
+// =============================================================================
 
 route('GET', '/api/boarding/trips', function () {
-    $s = require_agency(['owner', 'manager', 'staff']);
+    $s = require_agency(['owner', 'manager', 'staff', 'secretary']);
     $rows = all("SELECT t.id, t.status, t.departs_at, t.arrives_at, t.delay_minutes, t.price, t.vip_price,
                         oc.name AS origin, dc.name AS destination, oc.timezone,
                         b.id AS bus_id, b.label AS bus_label, b.plate, b.seat_count, b.has_gps,
@@ -35,7 +36,7 @@ route('GET', '/api/boarding/trips', function () {
 });
 
 route('GET', '/api/boarding/trips/{id}/manifest', function (array $p) {
-    $s = require_agency(['owner', 'manager', 'staff']);
+    $s = require_agency(['owner', 'manager', 'staff', 'secretary']);
     $trip = one("SELECT t.*, b.label AS bus_label, b.plate, b.seat_count, b.layout,
                         oc.name AS origin, dc.name AS destination, oc.timezone,
                         a.currency_code
@@ -120,7 +121,7 @@ route('GET', '/api/boarding/trips/{id}/manifest', function (array $p) {
 // - Si target_status = 'boarded' -> passe le siège au vert ('boarded')
 // - Si target_status = 'absent'  -> passe le siège au rouge ('no_show') et libère la place
 route('POST', '/api/boarding/trips/{id}/seat-click', function (array $p) {
-    $s = require_agency(['owner', 'manager', 'staff']);
+    $s = require_agency(['owner', 'manager', 'staff', 'secretary']);
     $in = input();
     $seatId = (int) ($in['seat_id'] ?? 0);
     $targetStatus = (string) ($in['target_status'] ?? 'boarded'); // 'boarded' ou 'absent' ou 'reset'
@@ -131,11 +132,13 @@ route('POST', '/api/boarding/trips/{id}/seat-click', function (array $p) {
     $ticket = one("SELECT id, status, passenger_name FROM tickets WHERE trip_id = ? AND seat_id = ? AND status IN ('valid', 'boarded', 'no_show')",
         [$trip['id'], $seatId]);
 
-    if (!$ticket && $targetStatus === 'boarded') {
-        fail(409, 'no_ticket', 'Ce siège n\'a pas de billet réservé. Utilisez l\'option de remplacement pour y faire monter un passager.');
-    }
-    if (!$ticket && $targetStatus === 'absent') {
-        fail(409, 'no_ticket', 'Ce siège est vide.');
+    if (!$ticket) {
+        json_out([
+            'ok' => false,
+            'action' => 'unbooked',
+            'seat_id' => $seatId,
+            'message' => 'Ce siège n\'est pas encore réservé.',
+        ], 200);
     }
 
     if ($targetStatus === 'boarded') {
@@ -161,9 +164,35 @@ route('POST', '/api/boarding/trips/{id}/seat-click', function (array $p) {
     }
 });
 
+// Action groupée sur une sélection de passagers lors de l'appel
+route('POST', '/api/boarding/trips/{id}/batch-status', function (array $p) {
+    $s = require_agency(['owner', 'manager', 'staff', 'secretary']);
+    $in = input();
+    $seatIds = is_array($in['seat_ids'] ?? null) ? array_map('intval', $in['seat_ids']) : [];
+    $targetStatus = (string) ($in['target_status'] ?? 'boarded'); // 'boarded', 'absent', 'valid'
+
+    $trip = one('SELECT id FROM trips WHERE id = ? AND agency_id = ?', [(int) $p['id'], $s['agency_id']])
+        ?? fail(404, 'not_found', 'Départ introuvable.');
+
+    if (empty($seatIds)) fail(422, 'empty_selection', 'Aucun passager sélectionné.');
+
+    $inPlaceholders = implode(',', array_fill(0, count($seatIds), '?'));
+    $params = array_merge([$trip['id']], $seatIds);
+
+    if ($targetStatus === 'boarded') {
+        q("UPDATE tickets SET status = 'boarded', boarded_at = UTC_TIMESTAMP() WHERE trip_id = ? AND seat_id IN ($inPlaceholders)", $params);
+    } elseif ($targetStatus === 'absent') {
+        q("UPDATE tickets SET status = 'no_show', late_notice = 'Signalé absent en sélection groupée' WHERE trip_id = ? AND seat_id IN ($inPlaceholders)", $params);
+    } elseif ($targetStatus === 'valid' || $targetStatus === 'reset') {
+        q("UPDATE tickets SET status = 'valid', boarded_at = NULL WHERE trip_id = ? AND seat_id IN ($inPlaceholders)", $params);
+    }
+
+    json_out(['ok' => true, 'updated_count' => count($seatIds), 'status' => $targetStatus]);
+});
+
 // Marquer tous les passagers actuellement valides à bord en un clic
 route('POST', '/api/boarding/trips/{id}/board-all', function (array $p) {
-    $s = require_agency(['owner', 'manager', 'staff']);
+    $s = require_agency(['owner', 'manager', 'staff', 'secretary']);
     $trip = one('SELECT id FROM trips WHERE id = ? AND agency_id = ?', [(int) $p['id'], $s['agency_id']])
         ?? fail(404, 'not_found', 'Départ introuvable.');
 
@@ -175,7 +204,7 @@ route('POST', '/api/boarding/trips/{id}/board-all', function (array $p) {
 
 // Liste des passagers SANS BAGAGES enregistrés sur un autre bus de l'agence
 route('GET', '/api/boarding/trips/{id}/candidates-no-luggage', function (array $p) {
-    $s = require_agency(['owner', 'manager', 'staff']);
+    $s = require_agency(['owner', 'manager', 'staff', 'secretary']);
     $tripId = (int) $p['id'];
     $trip = one('SELECT id, agency_id, route_id FROM trips WHERE id = ? AND agency_id = ?', [$tripId, $s['agency_id']])
         ?? fail(404, 'not_found', 'Départ introuvable.');
@@ -207,7 +236,7 @@ route('GET', '/api/boarding/trips/{id}/candidates-no-luggage', function (array $
 // Option A : transfert d'un passager sans bagage (son ancien siège se libère immédiatement)
 // Option B : passager payant en espèce sur place
 route('POST', '/api/boarding/trips/{id}/assign-absent-seat', function (array $p) {
-    $s = require_agency(['owner', 'manager', 'staff']);
+    $s = require_agency(['owner', 'manager', 'staff', 'secretary']);
     $tripId = (int) $p['id'];
     $in = input();
     $seatId = (int) ($in['seat_id'] ?? 0);
@@ -332,7 +361,7 @@ route('POST', '/api/boarding/trips/{id}/assign-absent-seat', function (array $p)
 
 // Valider l'embarquement et marquer le départ du bus
 route('POST', '/api/boarding/trips/{id}/depart', function (array $p) {
-    $s = require_agency(['owner', 'manager', 'staff']);
+    $s = require_agency(['owner', 'manager', 'staff', 'secretary']);
     $trip = one('SELECT id, status FROM trips WHERE id = ? AND agency_id = ?', [(int) $p['id'], $s['agency_id']])
         ?? fail(404, 'not_found', 'Départ introuvable.');
 

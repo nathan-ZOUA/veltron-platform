@@ -11,6 +11,7 @@ import Avatar from "../components/Avatar";
 import SalesAnalyticsChart from "../components/SalesAnalyticsChart";
 import FleetLiveOverview from "../components/FleetLiveOverview";
 import BoardingCallWorkspace from "../components/BoardingCallWorkspace";
+import SeatGrid, { GridSeat } from "../components/SeatGrid";
 
 type TabId =
   | "overview"
@@ -106,23 +107,27 @@ export default function AgencyWorkspace() {
       if (userDashboardModules && userDashboardModules.length > 0) {
         if (t.id === "boarding" && userDashboardModules.includes("boarding")) return true;
         if (t.id === "desk" && userDashboardModules.includes("desk")) return true;
-        if (t.id === "fleet_live" && userDashboardModules.includes("tracking")) return true;
+        if (t.id === "fleet_live" && (userDashboardModules.includes("tracking") || userDashboardModules.includes("fleet_live"))) return true;
         if (t.id === "fleet" && userDashboardModules.includes("fleet")) return true;
         if (t.id === "analytics" && userDashboardModules.includes("analytics")) return true;
-        if (t.id === "commercial" && (userDashboardModules.includes("rentals") || userDashboardModules.includes("sales"))) return true;
-        if (t.id === "finance" && (userDashboardModules.includes("cash_journal") || userDashboardModules.includes("sales"))) return true;
+        if (t.id === "commercial" && (userDashboardModules.includes("rentals") || userDashboardModules.includes("commercial") || userDashboardModules.includes("sales"))) return true;
+        if (t.id === "finance" && (userDashboardModules.includes("cash_journal") || userDashboardModules.includes("finance") || userDashboardModules.includes("sales"))) return true;
         if (t.id === "settings" && userDashboardModules.includes("settings")) return true;
         if (t.id === "trips" && userDashboardModules.includes("trips")) return true;
+        if (t.id === "staff" && userDashboardModules.includes("staff")) return true;
+        if (t.id === "overview" && userDashboardModules.includes("overview")) return true;
 
         if (t.id === "boarding" && !userDashboardModules.includes("boarding")) return false;
         if (t.id === "desk" && !userDashboardModules.includes("desk")) return false;
-        if (t.id === "fleet_live" && !userDashboardModules.includes("tracking")) return false;
+        if (t.id === "fleet_live" && !userDashboardModules.includes("tracking") && !userDashboardModules.includes("fleet_live")) return false;
         if (t.id === "fleet" && !userDashboardModules.includes("fleet")) return false;
         if (t.id === "analytics" && !userDashboardModules.includes("analytics")) return false;
-        if (t.id === "commercial" && !userDashboardModules.includes("rentals") && !userDashboardModules.includes("sales")) return false;
-        if (t.id === "finance" && !userDashboardModules.includes("cash_journal") && !userDashboardModules.includes("sales")) return false;
+        if (t.id === "commercial" && !userDashboardModules.includes("rentals") && !userDashboardModules.includes("commercial") && !userDashboardModules.includes("sales")) return false;
+        if (t.id === "finance" && !userDashboardModules.includes("cash_journal") && !userDashboardModules.includes("finance") && !userDashboardModules.includes("sales")) return false;
         if (t.id === "settings" && !userDashboardModules.includes("settings")) return false;
         if (t.id === "trips" && !userDashboardModules.includes("trips")) return false;
+        if (t.id === "staff" && !userDashboardModules.includes("staff")) return false;
+        if (t.id === "overview" && !userDashboardModules.includes("overview")) return false;
       }
 
       return isDefaultRoleTab;
@@ -197,11 +202,67 @@ export default function AgencyWorkspace() {
     cols_right: 2,
     rows: 12,
     vip_rows: 2,
+    co_drivers: 2,
     avg_speed_kmh: 75,
     has_gps: false,
     gps_device_id: "",
   });
+  const [selectedBusPreviewId, setSelectedBusPreviewId] = useState<number | null>(null);
+
+  // Génération dynamique des sièges pour l'aperçu réaliste de l'autocar en temps réel
+  const previewBusSeats = useMemo(() => {
+    const list: GridSeat[] = [];
+    const totalCols = (busForm.cols_left || 2) + (busForm.cols_right || 2);
+    let seatNo = 1;
+    for (let r = 1; r <= (busForm.rows || 12); r++) {
+      for (let c = 1; c <= totalCols; c++) {
+        list.push({
+          id: seatNo,
+          seat_no: seatNo,
+          row_no: r,
+          col_no: c,
+          seat_class: r <= (busForm.vip_rows || 0) ? "vip" : "standard",
+          taken: false,
+        });
+        seatNo++;
+      }
+    }
+    return list;
+  }, [busForm.cols_left, busForm.cols_right, busForm.rows, busForm.vip_rows]);
+
   const [routeForm, setRouteForm] = useState({ origin_name: "", dest_name: "", distance_km: 240, duration_min: 210 });
+
+  // Matrice de calcul de la disponibilité en temps réel de chaque autocar
+  const busAvailabilityMap = useMemo(() => {
+    const map = new Map<number, { status: "available" | "boarding" | "transit" | "maintenance"; label: string; details?: string }>();
+    buses.forEach((b) => {
+      if (b.status === "maintenance") {
+        map.set(b.id, { status: "maintenance", label: "🔧 En maintenance", details: "Immobilisé pour révision technique" });
+        return;
+      }
+      const activeTrip = trips.find(
+        (t) => (t.plate === b.plate || t.bus_label === b.label) && (t.status === "boarding" || t.status === "departed")
+      );
+      if (activeTrip) {
+        if (activeTrip.status === "boarding") {
+          map.set(b.id, {
+            status: "boarding",
+            label: "🚪 En embarquement",
+            details: `${activeTrip.origin} ➔ ${activeTrip.destination} (${activeTrip.boarded_seats}/${activeTrip.seat_count} à bord)`,
+          });
+        } else {
+          map.set(b.id, {
+            status: "transit",
+            label: "🔵 En route (Transit)",
+            details: `${activeTrip.origin} ➔ ${activeTrip.destination} (${activeTrip.reserved_seats} passagers)`,
+          });
+        }
+      } else {
+        map.set(b.id, { status: "available", label: "🟢 Disponible au dépôt", details: "Prêt pour affectation immédiate" });
+      }
+    });
+    return map;
+  }, [buses, trips]);
 
   // Espace Chauffeur (suivi manuel sans GPS + connexion GPS / Google Maps / Mapbox + historique des anciens trajets)
   const [driverData, setDriverData] = useState<{
@@ -837,23 +898,19 @@ export default function AgencyWorkspace() {
     setNotice("");
     setError("");
     try {
-      if (role === "owner") {
-        const res = await api<{ ok: boolean; modules: string[] }>("/agency/me/dashboard-modules", {
+      const res = await api<{ ok: boolean; modules: string[] }>("/agency/me/dashboard-modules", {
+        body: { modules: userDashboardModules },
+        realm: "agency",
+      });
+      setUserDashboardModules(res.modules);
+      setDashboardModulesModal(false);
+      setNotice("✓ Votre tableau de bord a été personnalisé avec succès selon vos fonctions choisies (zéro perte de données).");
+      await refreshAgency();
+      if (role !== "owner") {
+        api("/agency/chat/request-modules", {
           body: { modules: userDashboardModules },
           realm: "agency",
-        });
-        setUserDashboardModules(res.modules);
-        setDashboardModulesModal(false);
-        setNotice("✓ Votre tableau de bord administrateur a été réadapté avec succès selon vos cercles choisis (zéro perte de données).");
-        await refreshAgency();
-      } else {
-        // Envoi de la demande d'évolution à l'administrateur dans la discussion d'équipe
-        await api<{ ok: boolean }>("/agency/chat/request-modules", {
-          body: { modules: userDashboardModules },
-          realm: "agency",
-        });
-        setDashboardModulesModal(false);
-        setNotice("✓ Votre demande d'évolution de tableau de bord a été envoyée dans la Discussion d'Équipe. L'administrateur a été notifié pour valider vos nouveaux modules.");
+        }).catch(() => {});
       }
     } catch (err) {
       handleErr(err);
@@ -1086,7 +1143,7 @@ export default function AgencyWorkspace() {
   }, []);
 
   return (
-    <div className={`container page ${tab === "desk" ? "container--desk-wide" : ""}`}>
+    <div className="container page">
       {/* En-tête de session isolée */}
       <div className="workspace-banner card">
         <div style={{ display: "flex", gap: "var(--space-4)", alignItems: "center", flexWrap: "wrap" }}>
@@ -1109,6 +1166,7 @@ export default function AgencyWorkspace() {
           <div style={{ flex: 1, minWidth: 260 }}>
             <div className="chips" style={{ marginBottom: 6 }}>
               <span className="badge mono">ID : {agencySession.agency.public_code}</span>
+              <span className="badge mono" style={{ background: "rgba(245, 158, 11, 0.18)", color: "#fbbf24", borderColor: "#fbbf24" }}>🗄️ DB Auto-Créée : veltron_tenant_{agencySession.agency.public_code.toLowerCase().replace(/[^a-z0-9]/g, "_")}</span>
               {agencySession.user.matricule && (
                 <span className="badge mono" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10b981", borderColor: "#10b981" }}>
                   Matricule : {agencySession.user.matricule}
@@ -1258,12 +1316,101 @@ export default function AgencyWorkspace() {
 
       {/* ==================== 2b. FLOTTE & GPS EN DIRECT ==================== */}
       {tab === "fleet_live" && (
-        <FleetLiveOverview
-          fleet={fleetLive}
-          onRefresh={loadTabContent}
-          timezone={Intl.DateTimeFormat().resolvedOptions().timeZone || "Africa/Douala"}
-          language={i18n.language}
-        />
+        <div className="form-grid">
+          {/* Matrice de Disponibilité de la Flotte en Temps Réel pour l'Admin */}
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+              <div>
+                <strong style={{ fontSize: "1.05rem", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>🚌</span> Disponibilité Opérationnelle de la Flotte ({buses.length} autocars)
+                </strong>
+                <span className="muted" style={{ fontSize: "0.85rem" }}>
+                  Suivi instantané de l'état de tous les bus de l'agence (disponible, en transit, en embarquement, maintenance)
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <span className="badge" style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid #10b981" }}>
+                  🟢 {buses.filter((b) => busAvailabilityMap.get(b.id)?.status === "available").length} Disponibles au dépôt
+                </span>
+                <span className="badge" style={{ background: "rgba(59, 130, 246, 0.15)", color: "#3b82f6", border: "1px solid #3b82f6" }}>
+                  🔵 {buses.filter((b) => busAvailabilityMap.get(b.id)?.status === "transit").length} En transit / route
+                </span>
+                <span className="badge" style={{ background: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", border: "1px solid #f59e0b" }}>
+                  🚪 {buses.filter((b) => busAvailabilityMap.get(b.id)?.status === "boarding").length} En embarquement
+                </span>
+                <span className="badge" style={{ background: "rgba(239, 68, 68, 0.15)", color: "#ef4444", border: "1px solid #ef4444" }}>
+                  🔧 {buses.filter((b) => busAvailabilityMap.get(b.id)?.status === "maintenance").length} En maintenance
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+              {buses.map((b) => {
+                const avail = busAvailabilityMap.get(b.id) || { status: "available", label: "🟢 Disponible au dépôt" };
+                return (
+                  <div
+                    key={b.id}
+                    style={{
+                      background: "var(--bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 10,
+                      padding: "10px 12px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong>{b.label}</strong>
+                      <span className="mono badge" style={{ fontSize: "0.75rem" }}>{b.plate}</span>
+                    </div>
+                    <div style={{ fontSize: "0.82rem", color: "var(--muted)" }}>
+                      Capacité : {b.seat_count} places ({b.bus_type})
+                    </div>
+                    <div style={{ marginTop: 4 }}>
+                      <span
+                        className="badge"
+                        style={{
+                          fontSize: "0.76rem",
+                          background:
+                            avail.status === "available"
+                              ? "rgba(16, 185, 129, 0.15)"
+                              : avail.status === "transit"
+                                ? "rgba(59, 130, 246, 0.15)"
+                                : avail.status === "boarding"
+                                  ? "rgba(245, 158, 11, 0.15)"
+                                  : "rgba(239, 68, 68, 0.15)",
+                          color:
+                            avail.status === "available"
+                              ? "#10b981"
+                              : avail.status === "transit"
+                                ? "#3b82f6"
+                                : avail.status === "boarding"
+                                  ? "#f59e0b"
+                                  : "#ef4444",
+                        }}
+                      >
+                        {avail.label}
+                      </span>
+                    </div>
+                    {avail.details && (
+                      <div className="muted" style={{ fontSize: "0.72rem", marginTop: 2 }}>
+                        {avail.details}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <FleetLiveOverview
+            fleet={fleetLive}
+            onRefresh={loadTabContent}
+            timezone={Intl.DateTimeFormat().resolvedOptions().timeZone || "Africa/Douala"}
+            language={i18n.language}
+          />
+        </div>
       )}
 
       {/* ==================== 3. PROGRAMMATION DES VOYAGES & REPORTS ==================== */}
@@ -1331,6 +1478,93 @@ export default function AgencyWorkspace() {
           </div>
 
           <aside className="side-stack">
+            {/* Matrice de Disponibilité de tous les bus de l'agence pour le Responsable Programmation */}
+            <div className="card" style={{ padding: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <strong style={{ fontSize: "0.95rem", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span>🚌</span> Flotte de l'Agence ({buses.length} bus)
+                </strong>
+                <span className="badge mono" style={{ fontSize: "0.76rem", background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "1px solid #10b981" }}>
+                  {buses.filter((b) => busAvailabilityMap.get(b.id)?.status === "available").length} libres
+                </span>
+              </div>
+              <p className="muted" style={{ fontSize: "0.78rem", margin: "0 0 10px" }}>
+                Cliquez sur un car libre pour l'affecter immédiatement :
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto" }}>
+                {buses.length === 0 ? (
+                  <div className="muted" style={{ fontSize: "0.82rem", textAlign: "center", padding: 8 }}>
+                    Aucun bus enregistré dans l'agence.
+                  </div>
+                ) : (
+                  buses.map((b) => {
+                    const avail = busAvailabilityMap.get(b.id) || { status: "available", label: "🟢 Disponible au dépôt" };
+                    const isSelected = tripForm.bus_id === b.id;
+                    const isFree = avail.status === "available";
+                    return (
+                      <div
+                        key={b.id}
+                        onClick={() => {
+                          if (isFree) setTripForm((prev) => ({ ...prev, bus_id: b.id }));
+                        }}
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: 8,
+                          border: isSelected ? "2px solid var(--accent)" : "1px solid var(--border)",
+                          background: isSelected ? "rgba(140, 107, 184, 0.12)" : "var(--bg)",
+                          cursor: isFree ? "pointer" : "default",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          fontSize: "0.85rem",
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div>
+                          <strong>{b.label}</strong>{" "}
+                          <span className="mono muted" style={{ fontSize: "0.8rem" }}>({b.plate})</span>
+                          <span className="muted" style={{ display: "block", fontSize: "0.74rem" }}>
+                            {b.seat_count} pl. · {avail.details || ""}
+                          </span>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <span
+                            className="badge"
+                            style={{
+                              fontSize: "0.74rem",
+                              background:
+                                avail.status === "available"
+                                  ? "rgba(16, 185, 129, 0.15)"
+                                  : avail.status === "transit"
+                                    ? "rgba(59, 130, 246, 0.15)"
+                                    : avail.status === "boarding"
+                                      ? "rgba(245, 158, 11, 0.15)"
+                                      : "rgba(239, 68, 68, 0.15)",
+                              color:
+                                avail.status === "available"
+                                  ? "#10b981"
+                                  : avail.status === "transit"
+                                    ? "#3b82f6"
+                                    : avail.status === "boarding"
+                                      ? "#f59e0b"
+                                      : "#ef4444",
+                            }}
+                          >
+                            {avail.label}
+                          </span>
+                          {isSelected && (
+                            <span style={{ display: "block", fontSize: "0.72rem", color: "var(--accent)", fontWeight: 700, marginTop: 2 }}>
+                              ✓ Sélectionné
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
             <form className="card form-grid" onSubmit={createTrip}>
               <h3 className="subheading" style={{ margin: 0 }}>Programmer un nouveau départ</h3>
               <label className="field">
@@ -1357,11 +1591,15 @@ export default function AgencyWorkspace() {
                   onChange={(e) => setTripForm({ ...tripForm, bus_id: Number(e.target.value) })}
                 >
                   {buses.length === 0 && <option value={0}>— Aucun bus disponible —</option>}
-                  {buses.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.label} ({b.plate} · {b.seat_count} pl.)
-                    </option>
-                  ))}
+                  {buses.map((b) => {
+                    const avail = busAvailabilityMap.get(b.id);
+                    const tag = avail?.status === "available" ? "🟢 [DISPO] " : avail?.status === "transit" ? "🔵 [EN ROUTE] " : avail?.status === "boarding" ? "🚪 [EMBARQUEMENT] " : "🔧 [MAINTENANCE] ";
+                    return (
+                      <option key={b.id} value={b.id}>
+                        {tag}{b.label} ({b.plate} · {b.seat_count} pl.)
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
 
@@ -1899,6 +2137,36 @@ export default function AgencyWorkspace() {
                       Catégorie : {b.bus_type.toUpperCase()} · Vitesse moyenne calcul ETA : {b.avg_speed_kmh} km/h
                       {b.gps_device_id ? ` · Traceur : ${b.gps_device_id}` : ""}
                     </span>
+
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--ghost"
+                      style={{ marginTop: 8, alignSelf: "flex-start" }}
+                      onClick={() => setSelectedBusPreviewId(selectedBusPreviewId === b.id ? null : b.id)}
+                    >
+                      {selectedBusPreviewId === b.id ? "▲ Masquer le plan du bus" : "👁️ Visualiser le plan réaliste ▼"}
+                    </button>
+
+                    {selectedBusPreviewId === b.id && (
+                      <div style={{ marginTop: 12, width: "100%" }}>
+                        <SeatGrid
+                          seats={Array.from({ length: b.seat_count }).map((_, idx) => ({
+                            id: idx + 1,
+                            seat_no: idx + 1,
+                            row_no: Math.floor(idx / 4) + 1,
+                            col_no: (idx % 4) + 1,
+                            seat_class: idx < 8 ? "vip" : "standard",
+                            taken: idx % 6 === 0,
+                          }))}
+                          seatsPerRow={[2, 2]}
+                          busLabel={b.label}
+                          busPlate={b.plate}
+                          busType={b.bus_type}
+                          coDriverCount={2}
+                          interactive={false}
+                        />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -1970,7 +2238,7 @@ export default function AgencyWorkspace() {
                   />
                 </label>
                 <label className="field">
-                  <span className="field__label">Rangées</span>
+                  <span className="field__label">Rangées de sièges</span>
                   <input
                     className="input"
                     type="number"
@@ -1981,6 +2249,32 @@ export default function AgencyWorkspace() {
                   />
                 </label>
               </div>
+
+              <div className="search-grid">
+                <label className="field">
+                  <span className="field__label">Rangées VIP (Dorées à l'avant)</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={busForm.rows}
+                    value={busForm.vip_rows}
+                    onChange={(e) => setBusForm({ ...busForm, vip_rows: Number(e.target.value) })}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field__label">Équipage (Sièges Co-Chauffeurs)</span>
+                  <select
+                    className="select"
+                    value={busForm.co_drivers}
+                    onChange={(e) => setBusForm({ ...busForm, co_drivers: Number(e.target.value) })}
+                  >
+                    <option value={1}>1 Conducteur + 1 Co-Chauffeur</option>
+                    <option value={2}>1 Conducteur + 2 Co-Chauffeurs / Convoyeur</option>
+                  </select>
+                </label>
+              </div>
+
               <label className="checkbox-row">
                 <input
                   type="checkbox"
@@ -2000,7 +2294,26 @@ export default function AgencyWorkspace() {
                   />
                 </label>
               )}
-              <button type="submit" className="btn">
+
+              {/* APERÇU HYPER-RÉALISTE DU BUS EN DIRECT POUR LE PROGRAMMATEUR */}
+              <div style={{ marginTop: 12, borderTop: "1px dashed var(--border)", paddingTop: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span className="badge" style={{ fontWeight: 700 }}>
+                    🚌 Aperçu en direct : {busForm.label || "Nouvel Autocar"} ({(busForm.cols_left + busForm.cols_right) * busForm.rows} places passagers + 1 Chauffeur + {busForm.co_drivers} Co-Chauffeurs)
+                  </span>
+                </div>
+                <SeatGrid
+                  seats={previewBusSeats}
+                  seatsPerRow={[busForm.cols_left || 2, busForm.cols_right || 2]}
+                  busLabel={busForm.label || "Aperçu de Programmation"}
+                  busPlate={busForm.plate || "IMMAT-PREVIEW"}
+                  busType="Autocar Grand Tourisme"
+                  coDriverCount={busForm.co_drivers ?? 2}
+                  interactive={false}
+                />
+              </div>
+
+              <button type="submit" className="btn" style={{ marginTop: 10 }}>
                 Créer le bus ({(busForm.cols_left + busForm.cols_right) * busForm.rows} places)
               </button>
             </form>
@@ -3014,13 +3327,14 @@ export default function AgencyWorkspace() {
               {[
                 { id: "desk", label: "Guichet & Ventes", icon: "🎟️", desc: "Vente billets comptoir, encaissements espèces / Momo, bagages" },
                 { id: "boarding", label: "Embarquement & Quai", icon: "📋", desc: "Appel passagers, sièges verts/rouges, passagers sans bagages" },
+                { id: "trips", label: "Voyages & Programmation", icon: "🗓️", desc: "Création, programmation des départs, reports et assignation" },
                 { id: "fleet", label: "Flotte & Lignes", icon: "🚌", desc: "Bus, immatriculations, plan de sièges" },
                 { id: "tracking", label: "Suivi GPS en Direct", icon: "🗺️", desc: "Localisation Maps en direct et signal chauffeur" },
-                { id: "rentals", label: "Location de Bus", icon: "🤝", desc: "Chiffrage devis et location de véhicules" },
-                { id: "sales", label: "Bourse & Vente Bus", icon: "🛒", desc: "Achat et vente de cars d'occasion" },
-                { id: "analytics", label: "Diagramme Ventes", icon: "📊", desc: "Statistiques et chiffre d'affaires (jour/sem/mois/an)" },
-                { id: "cash_journal", label: "Journal de Caisse", icon: "💼", desc: "Bilan espèces, Mobile Money et cartes" },
-                { id: "settings", label: "Sécurité & Audit", icon: "⚙️", desc: "Règles agence, accès et traçabilité" },
+                { id: "analytics", label: "Diagramme Ventes", icon: "📈", desc: "Statistiques et chiffre d'affaires (jour/sem/mois/an)" },
+                { id: "cash_journal", label: "Journal de Caisse", icon: "💼", desc: "Bilan espèces, Mobile Money, écarts et archives caisses" },
+                { id: "commercial", label: "Location & Vente Bus", icon: "🤝", desc: "Chiffrage devis, privatisation et bourses d'autocars" },
+                { id: "staff", label: "Équipe & Personnel", icon: "👥", desc: "Gestion des postes, créations et attributions" },
+                { id: "settings", label: "Sécurité & Audit", icon: "🛡️", desc: "Règles agence, accès et traçabilité" },
               ].map((mod) => {
                 const isSelected = userDashboardModules.includes(mod.id);
                 return (
@@ -3057,18 +3371,12 @@ export default function AgencyWorkspace() {
               })}
             </div>
 
-            {role !== "owner" && (
-              <div style={{ background: "rgba(140, 107, 184, 0.08)", padding: "8px 12px", borderRadius: 8, fontSize: "var(--text-xs)", color: "var(--text-secondary)", marginBottom: 8 }}>
-                💬 <strong>Processus de validation d'équipe :</strong> Votre demande d'ajout ou de modification de modules sera automatiquement soumise sous forme de fiche interactive dans la Discussion d'Équipe. L'administrateur pourra la valider d'un simple clic.
-              </div>
-            )}
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
               <button type="button" className="btn btn--ghost" onClick={() => setDashboardModulesModal(false)}>
                 Annuler
               </button>
               <button type="button" className="btn btn--primary" onClick={handleSaveDashboardModules} style={{ background: "var(--accent)" }}>
-                {role === "owner" ? "✓ Enregistrer & Réadapter mon tableau de bord" : "📤 Soumettre à l'Administrateur (Discussion d'équipe)"}
+                ✓ Enregistrer & Mettre à jour mon tableau de bord
               </button>
             </div>
           </div>

@@ -20,6 +20,63 @@ export const zh: DeepPartial<Translation> = {
     logout: "退出登录",
   },
 
+  search: {
+    tabTrips: "班次路线查询",
+    tabAgencies: "查找客运公司",
+    origin: "出发地",
+    originPlaceholder: "出发城市（如：杜阿拉）",
+    destination: "目的地",
+    destinationPlaceholder: "您想前往哪里？（如：雅温得）",
+    date: "出行日期",
+    today: "今天",
+    tomorrow: "明天",
+    btnSearchTrips: "查询发车班次",
+    agencyPlaceholder: "公司名称、城市或国家（如：Équateur, Baobab...）",
+    btnSearchAgencies: "查找车企",
+    swap: "互换出发地与目的地",
+    resultsTitle: "个可用发车班次",
+    noResults: "该日期在此线路上暂无已安排的班次。",
+    askAnge: "咨询智能助手 Ange ✨",
+    bookSeat: "选座并立即预订",
+    freeSeats: "个余位",
+    allAgencies: "浏览所有合作车企",
+  },
+
+  cards: {
+    sectionTitle: "一键触达全方位旅客服务",
+    sectionNote: "请在下方选择所需功能：每项服务均直连 VELTRON 网络认证的专业运输公司。",
+    intercity: {
+      tag: "城际客运出行",
+      title: "预订巴士车票",
+      text: "查找可用班次路线，在交互式客车座位图上自主选座，并获取带有安全二维码的电子车票。",
+      cta: "查找车票",
+    },
+    rental: {
+      tag: "客车包车与定制出行",
+      title: "包租客车（配专业司机）",
+      text: "团队旅游出游、商务会议、大型婚礼或公务考察：直接向认证车企索取实时精准报价。",
+      cta: "索取报价",
+    },
+    sales: {
+      tag: "客车交易市场",
+      title: "购买认证客车",
+      text: "浏览经由 VELTRON 运输网络专业质检认证的全新与精选二手客车真实车源。",
+      cta: "查看车源",
+    },
+    tracking: {
+      tag: "实时智能遥测",
+      title: "GPS 实时追踪与路况监测",
+      text: "在高清地图上实时定位客车位置，动态监控当前时速 (km/h) 并接收实时交通拥堵预警。",
+      cta: "开启追踪",
+    },
+    loyalty: {
+      tag: "旅客尊享积分计划",
+      title: "积分累积与旅行奖励",
+      text: "每次乘坐 VELTRON 认证班车均可累积里程积分，随心兑换未来车票立减优惠与专属礼遇。",
+      cta: "查看积分",
+    },
+  },
+
   common: {
     simulated: "模拟",
     demoData: "演示数据",

@@ -90,6 +90,21 @@ if (!$hasTables) {
     }
 }
 
+// S'assurer que les agences, gares et départs sont pré-remplis
+$hasAgencies = false;
+try {
+    $hasAgencies = (bool) $pdo->query("SELECT id FROM agencies LIMIT 1")->fetch();
+} catch (Throwable) {}
+
+if (!$hasAgencies && file_exists($dbDir . DIRECTORY_SEPARATOR . 'seed.sql')) {
+    echo "[boot_prod] Initialisation des agences, flottes et départs (seed.sql)...\n";
+    $seedSql = file_get_contents($dbDir . DIRECTORY_SEPARATOR . 'seed.sql');
+    foreach (split_sql_prod($seedSql) as $stmt) {
+        if (preg_match('/^(DROP\s+DATABASE|CREATE\s+DATABASE|USE\s+)/i', $stmt)) continue;
+        try { $pdo->exec($stmt); } catch (Throwable) {}
+    }
+}
+
 // =============================================================================
 // MIGRATIONS AUTOMATIQUES & INDEX HAUTE CAPACITÉ (2 000 000+ CONNEXIONS)
 // =============================================================================
@@ -215,52 +230,56 @@ foreach ($refCities as [$iso2, $cName, $tz, $lat, $lng]) {
 }
 
 // =============================================================================
-// PURGE DE TOUTES LES DONNÉES DE TEST / DÉMO (is_seed = 1)
+// PURGE CONDITIONNELLE DES DONNÉES DE TEST (UNIQUEMENT SI PURGE_SEED=1)
 // =============================================================================
-echo "[boot_prod] Suppression de toutes les données de test (is_seed = 1)...\n";
-$pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
+if (env('PURGE_SEED', '0') === '1') {
+    echo "[boot_prod] Suppression de toutes les données de test (is_seed = 1)...\n";
+    $pdo->exec("SET FOREIGN_KEY_CHECKS = 0");
 
-// Supprimer toutes les données rattachées aux agences ou comptes de test (is_seed = 1)
-$seedAgencies = "SELECT id FROM agencies WHERE is_seed = 1";
-$seedTrips    = "SELECT id FROM trips WHERE agency_id IN ($seedAgencies)";
-$seedBookings = "SELECT id FROM bookings WHERE agency_id IN ($seedAgencies)";
-$seedTickets  = "SELECT id FROM tickets WHERE trip_id IN ($seedTrips) OR booking_id IN ($seedBookings)";
+    // Supprimer toutes les données rattachées aux agences ou comptes de test (is_seed = 1)
+    $seedAgencies = "SELECT id FROM agencies WHERE is_seed = 1";
+    $seedTrips    = "SELECT id FROM trips WHERE agency_id IN ($seedAgencies)";
+    $seedBookings = "SELECT id FROM bookings WHERE agency_id IN ($seedAgencies)";
+    $seedTickets  = "SELECT id FROM tickets WHERE trip_id IN ($seedTrips) OR booking_id IN ($seedBookings)";
 
-$pdo->exec("DELETE FROM ticket_transfers WHERE from_trip_id IN ($seedTrips) OR to_trip_id IN ($seedTrips)");
-$pdo->exec("DELETE FROM platform_commissions WHERE agency_id IN ($seedAgencies) OR trip_id IN ($seedTrips)");
-$pdo->exec("DELETE FROM trip_status_updates WHERE trip_id IN ($seedTrips)");
-$pdo->exec("DELETE FROM trip_driver_changes WHERE trip_id IN ($seedTrips)");
-$pdo->exec("DELETE FROM trip_drivers WHERE trip_id IN ($seedTrips)");
-$pdo->exec("DELETE FROM reviews WHERE is_seed = 1 OR agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM luggage WHERE ticket_id IN ($seedTickets)");
-$pdo->exec("DELETE FROM refunds WHERE ticket_id IN ($seedTickets)");
-$pdo->exec("DELETE FROM payments WHERE booking_id IN ($seedBookings)");
-$pdo->exec("DELETE FROM tickets WHERE trip_id IN ($seedTrips) OR booking_id IN ($seedBookings)");
-$pdo->exec("DELETE FROM bookings WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM trips WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM routes WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM seats WHERE bus_id IN (SELECT id FROM buses WHERE agency_id IN ($seedAgencies))");
-$pdo->exec("DELETE FROM buses WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM drivers WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM agency_staff WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM refund_tiers WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM loyalty_redemptions WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM loyalty_ledger WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM loyalty_rewards WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM chat_key_envelopes WHERE group_id IN (SELECT id FROM chat_groups WHERE agency_id IN ($seedAgencies))");
-$pdo->exec("DELETE FROM chat_group_keys WHERE group_id IN (SELECT id FROM chat_groups WHERE agency_id IN ($seedAgencies))");
-$pdo->exec("DELETE FROM chat_messages WHERE group_id IN (SELECT id FROM chat_groups WHERE agency_id IN ($seedAgencies))");
-$pdo->exec("DELETE FROM chat_members WHERE group_id IN (SELECT id FROM chat_groups WHERE agency_id IN ($seedAgencies))");
-$pdo->exec("DELETE FROM chat_groups WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM bus_inquiries WHERE listing_id IN (SELECT id FROM bus_listings WHERE agency_id IN ($seedAgencies))");
-$pdo->exec("DELETE FROM bus_listings WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM rental_requests WHERE agency_id IN ($seedAgencies) OR contact_email LIKE '%.test'");
-$pdo->exec("DELETE FROM platform_alerts WHERE agency_id IN ($seedAgencies)");
-$pdo->exec("DELETE FROM agencies WHERE is_seed = 1");
-$pdo->exec("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE is_seed = 1)");
-$pdo->exec("DELETE FROM users WHERE is_seed = 1");
+    $pdo->exec("DELETE FROM ticket_transfers WHERE from_trip_id IN ($seedTrips) OR to_trip_id IN ($seedTrips)");
+    $pdo->exec("DELETE FROM platform_commissions WHERE agency_id IN ($seedAgencies) OR trip_id IN ($seedTrips)");
+    $pdo->exec("DELETE FROM trip_status_updates WHERE trip_id IN ($seedTrips)");
+    $pdo->exec("DELETE FROM trip_driver_changes WHERE trip_id IN ($seedTrips)");
+    $pdo->exec("DELETE FROM trip_drivers WHERE trip_id IN ($seedTrips)");
+    $pdo->exec("DELETE FROM reviews WHERE is_seed = 1 OR agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM luggage WHERE ticket_id IN ($seedTickets)");
+    $pdo->exec("DELETE FROM refunds WHERE ticket_id IN ($seedTickets)");
+    $pdo->exec("DELETE FROM payments WHERE booking_id IN ($seedBookings)");
+    $pdo->exec("DELETE FROM tickets WHERE trip_id IN ($seedTrips) OR booking_id IN ($seedBookings)");
+    $pdo->exec("DELETE FROM bookings WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM trips WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM routes WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM seats WHERE bus_id IN (SELECT id FROM buses WHERE agency_id IN ($seedAgencies))");
+    $pdo->exec("DELETE FROM buses WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM drivers WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM agency_staff WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM refund_tiers WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM loyalty_redemptions WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM loyalty_ledger WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM loyalty_rewards WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM chat_key_envelopes WHERE group_id IN (SELECT id FROM chat_groups WHERE agency_id IN ($seedAgencies))");
+    $pdo->exec("DELETE FROM chat_group_keys WHERE group_id IN (SELECT id FROM chat_groups WHERE agency_id IN ($seedAgencies))");
+    $pdo->exec("DELETE FROM chat_messages WHERE group_id IN (SELECT id FROM chat_groups WHERE agency_id IN ($seedAgencies))");
+    $pdo->exec("DELETE FROM chat_members WHERE group_id IN (SELECT id FROM chat_groups WHERE agency_id IN ($seedAgencies))");
+    $pdo->exec("DELETE FROM chat_groups WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM bus_inquiries WHERE listing_id IN (SELECT id FROM bus_listings WHERE agency_id IN ($seedAgencies))");
+    $pdo->exec("DELETE FROM bus_listings WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM rental_requests WHERE agency_id IN ($seedAgencies) OR contact_email LIKE '%.test'");
+    $pdo->exec("DELETE FROM platform_alerts WHERE agency_id IN ($seedAgencies)");
+    $pdo->exec("DELETE FROM agencies WHERE is_seed = 1");
+    $pdo->exec("DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE is_seed = 1)");
+    $pdo->exec("DELETE FROM users WHERE is_seed = 1");
 
-$pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
+    $pdo->exec("SET FOREIGN_KEY_CHECKS = 1");
+} else {
+    echo "[boot_prod] Données d'essais préservées (agences partenaires, flottes, lignes et comptes démo actifs).\n";
+}
 
 // =============================================================================
 // COMPTE PROPRIÉTAIRE VELTRON (Nathan Zoua – Super Admin Production, is_seed = 0)

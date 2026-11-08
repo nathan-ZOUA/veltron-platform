@@ -68,7 +68,7 @@ route('GET', '/api/agency/staff', function () {
 });
 
 route('POST', '/api/agency/staff', function () {
-    $s = require_agency(['owner']);
+    $s = require_agency(['owner', 'manager']);
     $in = input();
     $role = (string) ($in['role'] ?? '');
     if (!in_array($role, ['manager', 'secretary', 'driver', 'staff', 'accountant'], true)) {
@@ -96,9 +96,42 @@ route('POST', '/api/agency/staff', function () {
 
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) fail(422, 'invalid_email', 'E-mail invalide.');
     if ($first === '' || $last === '') fail(422, 'invalid_name', 'Prénom et nom requis.');
-    if (strlen($password) < 8) fail(422, 'weak_password', 'Mot de passe personnel : 8 caractères minimum.');
-    if (one('SELECT id FROM users WHERE email = ?', [$email])) {
-        fail(409, 'email_taken', 'Cette adresse e-mail possède déjà un compte VELTRON.');
+    if (strlen($password) < 6) fail(422, 'weak_password', 'Mot de passe personnel : 6 caractères minimum.');
+
+    $existingUser = one('SELECT id FROM users WHERE email = ?', [$email]);
+    if ($existingUser) {
+        $existingStaff = one("SELECT id, status FROM agency_staff WHERE agency_id = ? AND user_id = ?", [$s['agency_id'], $existingUser['id']]);
+        if ($existingStaff && $existingStaff['status'] === 'active') {
+            fail(409, 'already_active', 'Ce collaborateur est déjà un membre actif au sein de votre agence.');
+        }
+
+        $userId = transaction(function () use ($s, $role, $existingUser, $first, $last, $phone, $jobTitle, $customRole, $matricule, $avatarUrl, $password, $existingStaff) {
+            $algo = defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT;
+            if ($password) {
+                q('UPDATE users SET password_hash = ?, first_name = ?, last_name = ?, phone = COALESCE(?, phone), avatar_url = COALESCE(?, avatar_url) WHERE id = ?',
+                    [password_hash($password, $algo), $first, $last, $phone, $avatarUrl, $existingUser['id']]);
+            }
+            if ($existingStaff) {
+                q("UPDATE agency_staff SET role = ?, job_title = ?, custom_role = ?, matricule = ?, status = 'active' WHERE id = ?",
+                    [$role, $jobTitle, $customRole, $matricule, $existingStaff['id']]);
+            } else {
+                q('INSERT INTO agency_staff (agency_id, user_id, role, job_title, custom_role, matricule, avatar_url, invited_by) VALUES (?,?,?,?,?,?,?,?)',
+                    [$s['agency_id'], $existingUser['id'], $role, $jobTitle, $customRole, $matricule, $avatarUrl, $s['id']]);
+            }
+
+            if ($role === 'driver') {
+                q('INSERT IGNORE INTO drivers (agency_id, user_id, photo_consent, licence_verified) VALUES (?,?, 1, 1)',
+                    [$s['agency_id'], $existingUser['id']]);
+            }
+
+            $gen = one("SELECT id FROM chat_groups WHERE agency_id = ? AND kind = 'general' LIMIT 1", [$s['agency_id']]);
+            if ($gen) q('INSERT IGNORE INTO chat_members (group_id, user_id, is_admin) VALUES (?,?,0)', [$gen['id'], $existingUser['id']]);
+
+            audit((int) $s['id'], $s['agency_id'], 'staff.link_existing', 'user', (int) $existingUser['id'], ['role' => $role, 'matricule' => $matricule]);
+            return (int) $existingUser['id'];
+        });
+
+        json_out(['user_id' => $userId, 'role' => $role, 'matricule' => $matricule, 'linked_existing' => true], 201);
     }
 
     $userId = transaction(function () use ($s, $role, $email, $first, $last, $phone, $jobTitle, $customRole, $matricule, $avatarUrl, $password) {
@@ -124,6 +157,18 @@ route('POST', '/api/agency/staff', function () {
     });
 
     json_out(['user_id' => $userId, 'role' => $role, 'matricule' => $matricule], 201);
+});
+
+// Personnalisation des modules du tableau de bord de l'employé connecté
+route('PATCH', '/api/agency/me/modules', function () {
+    $s = require_agency();
+    $in = input();
+    $modules = is_array($in['modules'] ?? null) ? $in['modules'] : [];
+    $modulesJson = json_encode($modules, JSON_UNESCAPED_UNICODE);
+    q("UPDATE agency_staff SET dashboard_modules = ? WHERE agency_id = ? AND user_id = ?",
+        [$modulesJson, $s['agency_id'], $s['id']]);
+    audit((int) $s['id'], $s['agency_id'], 'staff.update_modules', 'agency_staff', (int) $s['id'], ['modules' => $modules]);
+    json_out(['ok' => true, 'modules' => $modules]);
 });
 
 route('POST', '/api/agency/staff/{userId}/toggle', function (array $p) {
@@ -1254,7 +1299,7 @@ route('POST', '/api/agency/me/dashboard-modules', function () {
     $modules = $in['modules'] ?? [];
     if (!is_array($modules)) fail(422, 'invalid_modules', 'Liste des modules invalide.');
 
-    $allowed = ['desk', 'boarding', 'fleet', 'tracking', 'rentals', 'sales', 'analytics', 'settings', 'cash_journal'];
+    $allowed = ['desk', 'boarding', 'fleet', 'tracking', 'rentals', 'sales', 'analytics', 'settings', 'cash_journal', 'trips', 'staff', 'overview', 'fleet_live', 'commercial', 'finance'];
     $filtered = array_values(array_intersect($allowed, $modules));
 
     q("UPDATE agency_staff SET dashboard_modules = ? WHERE agency_id = ? AND user_id = ?",

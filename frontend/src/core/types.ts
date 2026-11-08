@@ -65,11 +65,21 @@ export interface Country {
   iso2: string;
   name_fr: string;
   name_en: string;
+  region?: string;
   default_currency: string;
   phone_prefix: string;
   currency_name?: string;
   currency_symbol?: string;
   minor_units?: number;
+}
+
+export interface City {
+  id: number;
+  country_id: number;
+  name: string;
+  timezone?: string;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface Currency {
@@ -140,6 +150,36 @@ export interface TripSummary {
   drivers: Driver[];
 }
 
+export interface SearchTripResult {
+  id: number;
+  departs_at: string;
+  arrives_at: string | null;
+  price: number;
+  vip_price: number | null;
+  delay_minutes?: number;
+  origin: string;
+  destination: string;
+  timezone: string;
+  distance_km?: number | null;
+  duration_min?: number | null;
+  bus_label: string;
+  bus_type: string;
+  seat_count: number;
+  free_seats: number;
+  agency_id: number;
+  agency_slug: string;
+  agency_name: string;
+  primary_color: string;
+  logo_path?: string | null;
+  agency_city?: string | null;
+  currency_code: string;
+  currency_symbol?: string | null;
+  minor_units: number;
+  country: string;
+  country_name: string;
+  rating?: number | null;
+}
+
 export interface Seat {
   id: number;
   seat_no: number;
@@ -171,6 +211,8 @@ export interface TripDetail {
   minor_units: number;
   refund_cutoff_minutes: number;
   seats: Seat[];
+  plate?: string;
+  plate_number?: string;
 }
 
 export interface RefundQuote {
@@ -254,6 +296,18 @@ export interface MapsConfig {
   mapbox_access_token: string;
 }
 
+export interface TrackingWaypoint {
+  id: string;
+  name: string;
+  km: number;
+  pct: number;
+  lat?: number | null;
+  lng?: number | null;
+  status: "passed" | "current" | "upcoming";
+  estimated_time?: string | null;
+  reached_at?: string | null;
+}
+
 export interface LiveTrackingData {
   trip_id: number;
   reference: string | null;
@@ -288,6 +342,10 @@ export interface LiveTrackingData {
   active_cause: string | null;
   drivers: Driver[];
   updates: TrackingUpdate[];
+  waypoints?: TrackingWaypoint[];
+  current_location_label?: string;
+  current_waypoint?: TrackingWaypoint | null;
+  next_waypoint?: TrackingWaypoint | null;
 }
 
 export interface DeskTrip {

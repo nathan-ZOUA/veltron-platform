@@ -137,7 +137,8 @@ export default function AgencyJoin() {
   }
 
   return (
-    <div className="auth-wrap">
+    <div className="auth-wrap photo-bg" style={{ "--photo-custom": 'url("/media/veltron-royal-bus.jpg")', position: "relative" } as React.CSSProperties}>
+      <div className="photo-bg__image photo-bg__image--custom" style={{ opacity: 0.25 }} />
       <section className="auth-card" style={{ maxWidth: step === "form" ? 580 : 520 }}>
         {/* ÉTAPE 1 : FORMULAIRE ÉPURÉ, CLAIR ET AÉRÉ */}
         {step === "form" && (

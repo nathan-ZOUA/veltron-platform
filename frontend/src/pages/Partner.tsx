@@ -413,30 +413,36 @@ export default function Partner() {
                   <>
                     <label className="field">
                       <span className="field__label">
-                        Rechercher parmi les {countries.length} pays du monde (classés par ordre alphabétique)
+                        Réseau panafricain VELTRON : {countries.length} pays d'Afrique (5 par région)
                       </span>
                       <input
                         className="input"
-                        placeholder="Tapez un pays, un code ISO ou une devise (ex. Canada, Sénégal, JPY…)"
+                        placeholder="Rechercher un pays d'Afrique, code ISO ou indicatif (ex. Cameroun, Sénégal, Kenya, Maroc...)"
                         value={countrySearch}
                         onChange={(e) => setCountrySearch(e.target.value)}
                       />
                     </label>
 
                     <label className="field">
-                      <span className="field__label">Pays d’implantation (A → Z)</span>
+                      <span className="field__label">Pays d’implantation en Afrique (classés par région)</span>
                       <select
                         className="select"
-                        size={7}
+                        size={8}
                         style={{ height: "auto" }}
                         value={agency.country_id}
                         onChange={(e) => pickCountry(Number(e.target.value))}
                       >
-                        {filteredCountries.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {i18n.language === "en" ? c.name_en : c.name_fr} ({c.iso2}) — {c.default_currency}{" "}
-                            {c.currency_name ? `· ${c.currency_name}` : ""} ({c.phone_prefix})
-                          </option>
+                        {Array.from(new Set(filteredCountries.map((c) => c.region || "Afrique"))).map((regionName) => (
+                          <optgroup key={regionName} label={`🌍 ${regionName}`}>
+                            {filteredCountries
+                              .filter((c) => (c.region || "Afrique") === regionName)
+                              .map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {i18n.language === "en" ? c.name_en : c.name_fr} ({c.iso2}) — {c.default_currency}{" "}
+                                  {c.currency_name ? `· ${c.currency_name}` : ""} ({c.phone_prefix})
+                                </option>
+                              ))}
+                          </optgroup>
                         ))}
                       </select>
                     </label>

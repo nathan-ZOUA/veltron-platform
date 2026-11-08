@@ -139,6 +139,17 @@ route('POST', '/api/bookings/{id}/pay', function (array $p) {
         if (strtotime($booking['expires_at'] . ' UTC') < time()) fail(410, 'expired', 'Le délai de paiement est dépassé.');
 
         $amount = (int) $booking['total'];
+
+        // Masquage sécurisé de carte bancaire (Norme PCI-DSS : stockage exclusif des 4 premiers et 4 derniers chiffres)
+        if ($provider === 'card') {
+            $rawDigits = preg_replace('/\D/', '', (string) ($in['card_number'] ?? $payerAccountInput));
+            if ($rawDigits !== '') {
+                $payerAccountInput = (strlen($rawDigits) >= 8)
+                    ? (substr($rawDigits, 0, 4) . ' •••• •••• ' . substr($rawDigits, -4))
+                    : ('•••• ' . substr($rawDigits, -4));
+            }
+        }
+
         // Récupération ou enregistrement automatique du mode de paiement du passager
         $pm = null;
         if ($methodId > 0) {

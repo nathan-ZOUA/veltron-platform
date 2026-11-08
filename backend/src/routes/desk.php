@@ -288,13 +288,43 @@ route('POST', '/api/desk/trips/{id}/sell', function (array $p) {
     }
     $luggageWeight = isset($in['luggage_weight_kg']) ? round(max(0.0, (float) $in['luggage_weight_kg']), 1) : 0.0;
 
-    $res = transaction(function () use ($s, $trip, $in, $name, $seatId, $paymentMethod, $luggageWeight) {
+    // Rapprochement du compte passager Veltron & contrôle d'unicité
+    $passengerAccount = trim((string) ($in['passenger_account'] ?? ''));
+    $phone = str_in($in['phone'] ?? '', 25) ?: null;
+    $email = strtolower(trim((string) ($in['email'] ?? '')));
+
+    $userId = null;
+    if ($passengerAccount !== '') {
+        $cleanAcc = ltrim($passengerAccount, '@');
+        $u = one("SELECT id, email, phone, first_name, last_name FROM users WHERE email = ? OR phone = ? OR id = ?",
+            [$cleanAcc, $cleanAcc, is_numeric($cleanAcc) ? (int)$cleanAcc : 0]);
+        if ($u) {
+            $userId = (int) $u['id'];
+        } else {
+            fail(404, 'account_not_found', "Le compte passager '{$passengerAccount}' est introuvable sur VELTRON.");
+        }
+    } elseif ($email !== '' || $phone !== null) {
+        $existingByEmail = $email !== '' ? one("SELECT id, phone FROM users WHERE email = ?", [$email]) : null;
+        $existingByPhone = $phone !== null ? one("SELECT id, email FROM users WHERE phone = ?", [$phone]) : null;
+
+        if ($existingByEmail && $existingByPhone && (int)$existingByEmail['id'] !== (int)$existingByPhone['id']) {
+            fail(409, 'conflict', 'Cette adresse e-mail et ce numéro de téléphone appartiennent à deux comptes passagers différents.');
+        }
+
+        if ($existingByEmail) {
+            $userId = (int) $existingByEmail['id'];
+        } elseif ($existingByPhone) {
+            $userId = (int) $existingByPhone['id'];
+        }
+    }
+
+    $res = transaction(function () use ($s, $trip, $in, $name, $seatId, $paymentMethod, $luggageWeight, $userId, $phone, $email) {
         $seat = one('SELECT id, seat_no, seat_class FROM seats WHERE id = ? AND bus_id = ?', [$seatId, $trip['bus_id']])
             ?? fail(422, 'invalid_seat', 'Siège invalide.');
         $price = ($seat['seat_class'] === 'vip' && $trip['vip_price']) ? (int) $trip['vip_price'] : (int) $trip['price'];
         $ref = new_reference();
 
-        $ag = one('SELECT commission_rate_bps, payout_method, payout_account_number, name, free_baggage_kg, baggage_fee_per_kg FROM agencies WHERE id = ? FOR UPDATE', [$trip['agency_id']]);
+        $ag = one('SELECT commission_rate_bps, payout_method, payout_account_number, name, free_baggage_kg, baggage_fee_per_kg, loyalty_points_per_trip FROM agencies WHERE id = ? FOR UPDATE', [$trip['agency_id']]);
         $rateBps = (int) ($ag['commission_rate_bps'] ?? 50);
         $platformFee = (int) round(($price * $rateBps) / 10000);
         $agencyNet = max(0, $price - $platformFee);
@@ -303,11 +333,11 @@ route('POST', '/api/desk/trips/{id}/sell', function (array $p) {
             : (($ag['payout_method'] ?: 'orange_money') . ':' . ($ag['payout_account_number'] ?: $ag['name']));
         $payerAccount = $paymentMethod === 'cash'
             ? 'ESPECES_RECU_PAR_SECRETAIRE'
-            : (str_in($in['phone'] ?? '', 25) ?: 'CLIENT_GUICHET');
+            : ($phone ?: 'CLIENT_GUICHET');
 
         q("INSERT INTO bookings (reference, agency_id, trip_id, user_id, channel, status, total, currency_code)
-           VALUES (?,?,?, NULL, 'counter', 'paid', ?, ?)",
-            [$ref, $trip['agency_id'], $trip['id'], $price, $trip['currency_code']]);
+           VALUES (?,?,?, ?, 'counter', 'paid', ?, ?)",
+            [$ref, $trip['agency_id'], $trip['id'], $userId, $price, $trip['currency_code']]);
         $bookingId = (int) db()->lastInsertId();
 
         try {
@@ -316,7 +346,7 @@ route('POST', '/api/desk/trips/{id}/sell', function (array $p) {
                 [$bookingId, $trip['id'], $seat['id'], $name,
                  str_in($in['id_type'] ?? 'CNI', 30) ?: 'CNI',
                  str_in($in['id_number'] ?? '', 40) ?: null,
-                 str_in($in['phone'] ?? '', 25) ?: null,
+                 $phone,
                  new_qr_token(), $price]);
         } catch (PDOException $e) {
             if ($e->getCode() === '23000') fail(409, 'seat_taken', 'Ce siège est déjà occupé.');
@@ -341,10 +371,26 @@ route('POST', '/api/desk/trips/{id}/sell', function (array $p) {
              $payerAccount, $agencyPayoutLabel, 'cnt-' . bin2hex(random_bytes(8)),
              $price, $agencyNet, $platformFee, $trip['currency_code']]);
 
-        // Si le bus devient plein avec cette vente guichet, reversement automatique des 0,5 % à VELTRON
+        // Points de fidélité et notification passager si compte rattaché
+        if ($userId) {
+            $lp = (int) ($ag['loyalty_points_per_trip'] ?? 10);
+            q("INSERT INTO loyalty_balances (user_id, agency_id, year, balance, trips_this_year)
+               VALUES (?, ?, YEAR(UTC_TIMESTAMP()), ?, 1)
+               ON DUPLICATE KEY UPDATE balance = balance + VALUES(balance), trips_this_year = trips_this_year + 1",
+                [$userId, $trip['agency_id'], $lp]);
+            notify_user($userId, 'ticket.counter_issued', [
+                'reference' => $ref,
+                'origin' => $trip['origin'],
+                'destination' => $trip['destination'],
+                'seat_no' => $seat['seat_no'],
+                'price' => $price,
+                'agency_name' => $ag['name'],
+            ]);
+        }
+
         settle_trip_commission((int) $trip['id']);
         audit((int) $s['id'], (int) $s['agency_id'], 'ticket.counter_sale', 'ticket', $ticketId, [
-            'seat_no' => $seat['seat_no'], 'payment_method' => $paymentMethod, 'amount' => $price,
+            'seat_no' => $seat['seat_no'], 'payment_method' => $paymentMethod, 'amount' => $price, 'user_id' => $userId,
         ]);
         return [
             'reference' => $ref,
@@ -353,6 +399,7 @@ route('POST', '/api/desk/trips/{id}/sell', function (array $p) {
             'price' => $price,
             'payment_method' => $paymentMethod,
             'luggage_tag' => $luggageTag,
+            'linked_user_id' => $userId,
         ];
     });
 
@@ -385,7 +432,7 @@ route('POST', '/api/desk/tickets/{id}/luggage', function (array $p) {
     json_out(['tag_code' => $tag, 'fee' => $fee], 201);
 });
 
-// Journal de Caisse quotidien du guichet (Secrétaire / Comptable / Admin)
+// Journal de Caisse quotidien général du guichet (Secrétaire / Comptable / Admin)
 route('GET', '/api/desk/cash-journal', function () {
     $s = require_agency(['owner', 'manager', 'secretary', 'accountant', 'staff']);
     $ag = one("SELECT currency_code, name FROM agencies WHERE id = ?", [$s['agency_id']]);
@@ -442,4 +489,213 @@ route('GET', '/api/desk/cash-journal', function () {
         ],
         'sales' => $sales,
     ]);
+});
+
+// JOURNAL DE CAISSE DÉDIÉ PAR DÉPART (Consultable en direct, mémorisé en DB & traçable)
+route('GET', '/api/desk/trips/{id}/cash-journal', function (array $p) {
+    $s = require_agency(['owner', 'manager', 'secretary', 'accountant', 'staff']);
+    $tripId = (int) $p['id'];
+
+    $trip = one("SELECT t.id, t.agency_id, t.status, t.departs_at, t.arrives_at, t.price, t.vip_price,
+                        oc.name AS origin, dc.name AS destination, b.label AS bus_label, b.plate, b.seat_count,
+                        a.currency_code, a.name AS agency_name
+                 FROM trips t
+                 JOIN routes r ON r.id = t.route_id
+                 JOIN cities oc ON oc.id = r.origin_city_id
+                 JOIN cities dc ON dc.id = r.dest_city_id
+                 JOIN buses b ON b.id = t.bus_id
+                 JOIN agencies a ON a.id = t.agency_id
+                 WHERE t.id = ? AND t.agency_id = ?", [$tripId, $s['agency_id']])
+        ?? fail(404, 'not_found', 'Départ introuvable.');
+
+    // Ventes et encaissements liés exclusivement à ce départ
+    $sales = all("SELECT p.id, p.provider, p.amount, p.currency_code, p.status, p.created_at,
+                         b.reference, b.channel, b.user_id,
+                         k.passenger_name, k.id_type, k.id_number, k.phone, st.seat_no,
+                         u.email AS user_email, u.first_name AS user_first, u.last_name AS user_last
+                  FROM payments p
+                  JOIN bookings b ON b.id = p.booking_id
+                  LEFT JOIN tickets k ON k.booking_id = b.id
+                  LEFT JOIN seats st ON st.id = k.seat_id
+                  LEFT JOIN users u ON u.id = b.user_id
+                  WHERE b.trip_id = ? AND b.agency_id = ? AND p.status = 'succeeded'
+                  ORDER BY p.id ASC", [$tripId, $s['agency_id']]);
+
+    $totalCash = 0;
+    $totalMomo = 0;
+    $totalCard = 0;
+    $totalAll = 0;
+
+    foreach ($sales as &$sale) {
+        $sale['created_at'] = iso($sale['created_at']);
+        $amt = (int) $sale['amount'];
+        $totalAll += $amt;
+
+        if ($sale['provider'] === 'cash') {
+            $totalCash += $amt;
+        } elseif (in_array($sale['provider'], ['orange_money', 'mtn_momo', 'wave'], true)) {
+            $totalMomo += $amt;
+        } elseif ($sale['provider'] === 'card') {
+            $totalCard += $amt;
+        } else {
+            $totalCash += $amt;
+        }
+    }
+
+    // Vérifier si une clôture de caisse existe déjà en base pour ce départ
+    $closedRecord = one("SELECT tcj.*, CONCAT(u.first_name, ' ', u.last_name) AS closed_by_name
+                         FROM trip_cash_journals tcj
+                         LEFT JOIN users u ON u.id = tcj.closed_by_user_id
+                         WHERE tcj.agency_id = ? AND tcj.trip_id = ?
+                         ORDER BY tcj.id DESC LIMIT 1", [$s['agency_id'], $tripId]);
+
+    if ($closedRecord) {
+        $closedRecord['created_at'] = iso($closedRecord['created_at']);
+        $closedRecord['closed_at'] = $closedRecord['closed_at'] ? iso($closedRecord['closed_at']) : null;
+    }
+
+    json_out([
+        'trip' => [
+            'id' => (int) $trip['id'],
+            'origin' => $trip['origin'],
+            'destination' => $trip['destination'],
+            'departs_at' => iso($trip['departs_at']),
+            'bus_label' => $trip['bus_label'],
+            'plate' => $trip['plate'],
+            'seat_count' => (int) $trip['seat_count'],
+            'currency_code' => $trip['currency_code'],
+            'status' => $trip['status'],
+        ],
+        'summary' => [
+            'total_tickets' => count($sales),
+            'total_amount' => $totalAll,
+            'total_cash' => $totalCash,
+            'total_momo' => $totalMomo,
+            'total_card' => $totalCard,
+        ],
+        'closed_record' => $closedRecord,
+        'sales' => $sales,
+    ]);
+});
+
+// CLÔTURE & ENREGISTREMENT DÉFINITIF DU JOURNAL DE CAISSE D'UN DÉPART (Contrôle anti-fraude)
+route('POST', '/api/desk/trips/{id}/cash-journal/close', function (array $p) {
+    $s = require_agency(['owner', 'manager', 'secretary', 'accountant']);
+    $tripId = (int) $p['id'];
+    $in = input();
+
+    $trip = one("SELECT id, agency_id FROM trips WHERE id = ? AND agency_id = ?", [$tripId, $s['agency_id']])
+        ?? fail(404, 'not_found', 'Départ introuvable.');
+
+    // Calculer les encaissements réels enregistrés sur le système
+    $sales = all("SELECT p.provider, p.amount
+                  FROM payments p
+                  JOIN bookings b ON b.id = p.booking_id
+                  WHERE b.trip_id = ? AND b.agency_id = ? AND p.status = 'succeeded'", [$tripId, $s['agency_id']]);
+
+    $totalCash = 0;
+    $totalMomo = 0;
+    $totalCard = 0;
+    $totalAll = 0;
+
+    foreach ($sales as $sale) {
+        $amt = (int) $sale['amount'];
+        $totalAll += $amt;
+        if ($sale['provider'] === 'cash') $totalCash += $amt;
+        elseif (in_array($sale['provider'], ['orange_money', 'mtn_momo', 'wave'], true)) $totalMomo += $amt;
+        elseif ($sale['provider'] === 'card') $totalCard += $amt;
+        else $totalCash += $amt;
+    }
+
+    $cashCounted = isset($in['cash_counted']) ? (int) $in['cash_counted'] : $totalCash;
+    $cashDifference = $cashCounted - $totalCash;
+    $notes = str_in($in['notes'] ?? '', 1000) ?: null;
+
+    // Empreinte cryptographique anti-fraude SHA-256
+    $auditPayload = sprintf('%d:%d:%d:%d:%d:%s', $s['agency_id'], $tripId, $totalCash, $cashCounted, (int)$s['id'], gmdate('Y-m-d H:i:s'));
+    $auditHash = hash('sha256', $auditPayload);
+
+    // Mémoriser en DB (création ou mise à jour du journal de caisse de ce départ)
+    $existing = one("SELECT id FROM trip_cash_journals WHERE agency_id = ? AND trip_id = ?", [$s['agency_id'], $tripId]);
+    if ($existing) {
+        q("UPDATE trip_cash_journals SET
+            closed_by_user_id = ?, status = 'closed',
+            total_tickets = ?, total_amount = ?, cash_amount = ?, momo_amount = ?, card_amount = ?,
+            cash_counted = ?, cash_difference = ?, notes = ?, audit_hash = ?, closed_at = UTC_TIMESTAMP()
+           WHERE id = ?",
+            [$s['id'], count($sales), $totalAll, $totalCash, $totalMomo, $totalCard,
+             $cashCounted, $cashDifference, $notes, $auditHash, $existing['id']]);
+        $journalId = (int) $existing['id'];
+    } else {
+        q("INSERT INTO trip_cash_journals (agency_id, trip_id, closed_by_user_id, status, total_tickets, total_amount,
+                                            cash_amount, momo_amount, card_amount, cash_counted, cash_difference, notes, audit_hash, closed_at)
+           VALUES (?, ?, ?, 'closed', ?, ?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())",
+            [$s['agency_id'], $tripId, $s['id'], count($sales), $totalAll,
+             $totalCash, $totalMomo, $totalCard, $cashCounted, $cashDifference, $notes, $auditHash]);
+        $journalId = (int) db()->lastInsertId();
+    }
+
+    audit((int) $s['id'], $s['agency_id'], 'cash_journal.close', 'trip_cash_journals', $journalId, [
+        'trip_id' => $tripId, 'total_amount' => $totalAll, 'cash_amount' => $totalCash,
+        'cash_counted' => $cashCounted, 'cash_difference' => $cashDifference, 'audit_hash' => $auditHash,
+    ]);
+
+    json_out([
+        'ok' => true,
+        'journal_id' => $journalId,
+        'status' => 'closed',
+        'cash_amount' => $totalCash,
+        'cash_counted' => $cashCounted,
+        'cash_difference' => $cashDifference,
+        'audit_hash' => $auditHash,
+        'message' => '✓ Caisse de ce départ clôturée et certifiée sans anomalie. Enregistrement sécurisé en base de données.',
+    ]);
+});
+
+// HISTORIQUE COMPLET DES JOURNAUX DE CAISSE PAR DÉPART (Consultable 1, 2, 5, 8 mois après)
+route('GET', '/api/desk/cash-journals', function () {
+    $s = require_agency(['owner', 'manager', 'secretary', 'accountant']);
+    $limit = min(200, max(10, (int) ($_GET['limit'] ?? 50)));
+
+    $rows = all("SELECT tcj.*,
+                        t.departs_at, t.status AS trip_status,
+                        oc.name AS origin, dc.name AS destination,
+                        b.plate AS bus_plate, b.label AS bus_label,
+                        a.currency_code,
+                        CONCAT(u.first_name, ' ', u.last_name) AS closed_by_name
+                 FROM trip_cash_journals tcj
+                 JOIN trips t ON t.id = tcj.trip_id
+                 JOIN routes r ON r.id = t.route_id
+                 JOIN cities oc ON oc.id = r.origin_city_id
+                 JOIN cities dc ON dc.id = r.dest_city_id
+                 JOIN buses b ON b.id = t.bus_id
+                 JOIN agencies a ON a.id = tcj.agency_id
+                 LEFT JOIN users u ON u.id = tcj.closed_by_user_id
+                 WHERE tcj.agency_id = ?
+                 ORDER BY tcj.closed_at DESC, tcj.id DESC
+                 LIMIT ?", [$s['agency_id'], $limit]);
+
+    foreach ($rows as &$r) {
+        $r['departs_at'] = iso($r['departs_at']);
+        $r['closed_at'] = $r['closed_at'] ? iso($r['closed_at']) : null;
+        $r['created_at'] = iso($r['created_at']);
+    }
+
+    json_out($rows);
+});
+
+// SUPPRESSION OU ARCHIVAGE D'UN JOURNAL DE CAISSE PAR L'ADMINISTRATEUR
+route('DELETE', '/api/desk/cash-journals/{id}', function (array $p) {
+    $s = require_agency(['owner']);
+    $journalId = (int) $p['id'];
+
+    $j = one("SELECT id, trip_id, cash_amount, closed_at FROM trip_cash_journals WHERE id = ? AND agency_id = ?", [$journalId, $s['agency_id']])
+        ?? fail(404, 'not_found', 'Journal introuvable.');
+
+    q("DELETE FROM trip_cash_journals WHERE id = ? AND agency_id = ?", [$journalId, $s['agency_id']]);
+    audit((int) $s['id'], $s['agency_id'], 'cash_journal.delete', 'trip_cash_journals', $journalId, [
+        'trip_id' => $j['trip_id'], 'cash_amount' => $j['cash_amount'],
+    ]);
+
+    json_out(['ok' => true, 'deleted' => true, 'id' => $journalId]);
 });

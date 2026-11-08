@@ -41,6 +41,29 @@ route('POST', '/api/rentals', function () {
         [$ref, $userId, $agencyId, $countryId, $departure, $destination, $startDate, $endDate,
          $passengers, $busType, $withDriver, $name, $email, $phone, $notes]);
 
+    // Notification immédiate par e-mail au gestionnaire de la plateforme
+    $ownerEmail = env('OWNER_EMAIL', 'najnathan23@gmail.com');
+    $ownerBody = "Nouvelle demande de location de bus reçue sur VELTRON :\n\n"
+        . "Référence : {$ref}\n"
+        . "Nom client : {$name}\n"
+        . "E-mail client : {$email}\n"
+        . "Téléphone client : {$phone}\n"
+        . "Trajet : {$departure} ➔ {$destination}\n"
+        . "Période : Du {$startDate} au {$endDate}\n"
+        . "Passagers : {$passengers} personnes\n"
+        . "Type de bus : {$busType} (Avec chauffeur : " . ($withDriver ? 'OUI' : 'NON') . ")\n"
+        . "Remarques : " . ($notes ?: 'Aucune') . "\n\n"
+        . "---\nSystème de notification VELTRON Platform";
+    send_veltron_mail($ownerEmail, "[VELTRON] Nouvelle demande de location de bus ({$ref})", $ownerBody);
+
+    // E-mail de confirmation transmis au client
+    $clientBody = "Bonjour {$name},\n\nNous confirmons la bonne réception de votre demande de location de bus sur VELTRON (Réf: {$ref}).\n\n"
+        . "Trajet : {$departure} ➔ {$destination}\n"
+        . "Dates : Du {$startDate} au {$endDate}\n\n"
+        . "Un conseiller prendra contact avec vous dans les plus brefs délais avec une proposition tarifaire détaillée.\n\n"
+        . "Cordialement,\nL'équipe VELTRON";
+    send_veltron_mail($email, "Confirmation de votre demande de location VELTRON ({$ref})", $clientBody);
+
     json_out(['reference' => $ref, 'status' => 'new'], 201);
 });
 
@@ -94,6 +117,24 @@ route('POST', '/api/bus-listings/{id}/inquire', function (array $p) {
 
     q('INSERT INTO bus_inquiries (listing_id, user_id, name, email, phone, message) VALUES (?,?,?,?,?,?)',
         [$listing['id'], $userId, $name, $email, $phone, $msg]);
+
+    // Envoi de l'e-mail au service client VELTRON & propriétaire
+    $ownerEmail = env('OWNER_EMAIL', 'najnathan23@gmail.com');
+    $ownerBody = "Nouveau message d'intérêt reçu pour une annonce de bus sur VELTRON :\n\n"
+        . "Annonce #{$listing['id']}\n"
+        . "Contact : {$name}\n"
+        . "E-mail : {$email}\n"
+        . "Téléphone : " . ($phone ?: 'Non renseigné') . "\n\n"
+        . "Message du client :\n{$msg}\n\n"
+        . "---\nSystème d'annonces VELTRON";
+    send_veltron_mail($ownerEmail, "[VELTRON] Message annonce bus #{$listing['id']} de {$name}", $ownerBody);
+
+    // Accusé de réception client
+    $clientBody = "Bonjour {$name},\n\nVotre demande de renseignements pour l'annonce de bus #{$listing['id']} a bien été transmise.\n\n"
+        . "Un responsable prendra contact avec vous prochainement.\n\n"
+        . "Cordialement,\nL'équipe VELTRON";
+    send_veltron_mail($email, "Votre demande de contact pour le bus #{$listing['id']} sur VELTRON", $clientBody);
+
     json_out(['sent' => true], 201);
 });
 

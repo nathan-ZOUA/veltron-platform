@@ -10,10 +10,10 @@ route('GET', '/api/health', fn() => json_out(['ok' => true, 'version' => '2.0'])
 route('GET', '/api/countries', function () {
     $lang = strtolower((string) ($_GET['lang'] ?? 'fr'));
     $orderCol = $lang === 'en' ? 'name_en' : 'name_fr';
-    $rows = all("SELECT c.id, c.iso2, c.name_fr, c.name_en, c.default_currency, c.phone_prefix,
+    $rows = all("SELECT c.id, c.iso2, c.name_fr, c.name_en, c.region, c.default_currency, c.phone_prefix,
                         cur.name AS currency_name, cur.symbol AS currency_symbol, cur.minor_units
                  FROM countries c JOIN currencies cur ON cur.code = c.default_currency
-                 ORDER BY c.$orderCol ASC");
+                 ORDER BY c.region ASC, c.$orderCol ASC");
     json_out($rows);
 });
 
@@ -25,9 +25,11 @@ route('GET', '/api/cities', function () {
 
 route('GET', '/api/currencies', fn() => json_out(all('SELECT code, name, symbol, minor_units FROM currencies ORDER BY code ASC')));
 
-// Annuaire des agences actives (filtre optionnel : ?country=CM)
+// Annuaire des agences actives (filtre optionnel : ?country=CM & ?q=recherche)
 route('GET', '/api/agencies', function () {
     $iso = strtoupper(substr(trim((string) ($_GET['country'] ?? '')), 0, 2));
+    $q = trim((string) ($_GET['q'] ?? $_GET['search'] ?? ''));
+    $like = '%' . strtolower($q) . '%';
     json_out(all("SELECT a.id, a.slug, a.name, a.primary_color, a.logo_path, a.cover_path,
                          a.currency_code, a.city_name, a.points_per_trip, c.iso2 AS country, c.name_fr AS country_name,
                          (SELECT ROUND(AVG(r.rating_agency), 1) FROM reviews r
@@ -37,8 +39,10 @@ route('GET', '/api/agencies', function () {
                          (SELECT COUNT(*) FROM trips t
                            WHERE t.agency_id = a.id AND t.status = 'scheduled' AND t.departs_at > UTC_TIMESTAMP()) AS upcoming_trips
                   FROM agencies a JOIN countries c ON c.id = a.country_id
-                  WHERE a.status = 'active' AND (? = '' OR c.iso2 = ?)
-                  ORDER BY a.name", [$iso, $iso]));
+                  WHERE a.status = 'active'
+                    AND (? = '' OR c.iso2 = ?)
+                    AND (? = '' OR LOWER(a.name) LIKE ? OR LOWER(a.city_name) LIKE ? OR LOWER(c.name_fr) LIKE ? OR LOWER(c.name_en) LIKE ?)
+                  ORDER BY a.name", [$iso, $iso, $q, $like, $like, $like, $like]));
 });
 
 // Fiche publique d'une agence
@@ -100,6 +104,76 @@ route('GET', '/api/agencies/{slug}/trips', function (array $p) {
     json_out($trips);
 });
 
+// Recherche tous transporteurs confondus pour le voyageur : origine, destination, date
+route('GET', '/api/trips/search', function () {
+    expire_holds();
+    $origin = trim((string) ($_GET['origin'] ?? ''));
+    $destination = trim((string) ($_GET['destination'] ?? ''));
+    $date = trim((string) ($_GET['date'] ?? '')); // format YYYY-MM-DD
+    $agencySlug = trim((string) ($_GET['agency'] ?? ''));
+    $iso = strtoupper(substr(trim((string) ($_GET['country'] ?? '')), 0, 2));
+
+    $sql = "SELECT t.id, t.departs_at, t.arrives_at, t.price, t.vip_price, t.delay_minutes,
+                   oc.name AS origin, dc.name AS destination, oc.timezone,
+                   r.distance_km, r.duration_min,
+                   b.label AS bus_label, b.bus_type, b.seat_count,
+                   b.seat_count - (SELECT COUNT(*) FROM tickets k WHERE k.trip_id = t.id AND k.active_seat_id IS NOT NULL) AS free_seats,
+                   a.id AS agency_id, a.slug AS agency_slug, a.name AS agency_name, a.primary_color,
+                   a.logo_path, a.city_name AS agency_city, a.currency_code, cur.symbol AS currency_symbol, cur.minor_units,
+                   c.iso2 AS country, c.name_fr AS country_name,
+                   (SELECT ROUND(AVG(rev.rating_agency), 1) FROM reviews rev WHERE rev.agency_id = a.id AND rev.status = 'published') AS rating
+            FROM trips t
+            JOIN routes r ON r.id = t.route_id
+            JOIN cities oc ON oc.id = r.origin_city_id
+            JOIN cities dc ON dc.id = r.dest_city_id
+            JOIN buses b ON b.id = t.bus_id
+            JOIN agencies a ON a.id = t.agency_id
+            JOIN countries c ON c.id = a.country_id
+            JOIN currencies cur ON cur.code = a.currency_code
+            WHERE a.status = 'active'
+              AND t.status IN ('scheduled', 'boarding')
+              AND t.departs_at > UTC_TIMESTAMP()";
+
+    $params = [];
+
+    if ($origin !== '') {
+        $sql .= " AND (LOWER(oc.name) LIKE ? OR oc.name LIKE ?)";
+        $params[] = '%' . strtolower($origin) . '%';
+        $params[] = '%' . $origin . '%';
+    }
+
+    if ($destination !== '') {
+        $sql .= " AND (LOWER(dc.name) LIKE ? OR dc.name LIKE ?)";
+        $params[] = '%' . strtolower($destination) . '%';
+        $params[] = '%' . $destination . '%';
+    }
+
+    if ($date !== '') {
+        $sql .= " AND DATE(t.departs_at) = ?";
+        $params[] = $date;
+    }
+
+    if ($agencySlug !== '') {
+        $sql .= " AND a.slug = ?";
+        $params[] = $agencySlug;
+    }
+
+    if ($iso !== '') {
+        $sql .= " AND c.iso2 = ?";
+        $params[] = $iso;
+    }
+
+    $sql .= " ORDER BY t.departs_at ASC LIMIT 80";
+
+    $trips = all($sql, $params);
+    foreach ($trips as &$t) {
+        $t['departs_at'] = iso($t['departs_at']);
+        $t['arrives_at'] = iso($t['arrives_at']);
+        $t['free_seats'] = max(0, (int) $t['free_seats']);
+    }
+    json_out($trips);
+});
+
 // Détail d'un départ + plan des sièges
 route('GET', '/api/trips/{id}', function (array $p) {
     expire_holds();
@@ -143,6 +217,90 @@ route('GET', '/api/agencies/{slug}/reviews', function (array $p) {
 // =============================================================================
 // SUIVI DE TRAJET EN TEMPS RÉEL (Vitesse km/h + Bouchons / Pannes + ETA dynamique)
 // =============================================================================
+
+function get_corridor_waypoints(string $origin, string $destination, int $distanceKm): array
+{
+    $key = mb_strtolower(trim($origin)) . '->' . mb_strtolower(trim($destination));
+
+    // Corridors majeurs avec étapes réelles et précises
+    $corridors = [
+        'douala->yaoundé' => [
+            ['name' => 'Douala (Gare Bassa / Deido)', 'pct' => 0],
+            ['name' => 'Édéa (Pont de la Sanaga)', 'pct' => 27],
+            ['name' => 'Pouma (Halte & Marché)', 'pct' => 47],
+            ['name' => 'Boumnyébel (Carrefour Centre-Littoral)', 'pct' => 61],
+            ['name' => 'Matomb (Péage & Poste de Contrôle)', 'pct' => 79],
+            ['name' => 'Mbankomo (Entrée Sud Yaoundé)', 'pct' => 90],
+            ['name' => 'Yaoundé (Gare de Mvan)', 'pct' => 100],
+        ],
+        'yaoundé->douala' => [
+            ['name' => 'Yaoundé (Gare de Mvan)', 'pct' => 0],
+            ['name' => 'Mbankomo (Sortie Sud)', 'pct' => 10],
+            ['name' => 'Matomb (Péage & Contrôle)', 'pct' => 21],
+            ['name' => 'Boumnyébel (Carrefour Centre-Littoral)', 'pct' => 39],
+            ['name' => 'Pouma (Halte Voyageurs)', 'pct' => 53],
+            ['name' => 'Édéa (Pont de la Sanaga)', 'pct' => 73],
+            ['name' => 'Douala (Gare Bassa / Deido)', 'pct' => 100],
+        ],
+        'yaoundé->bafoussam' => [
+            ['name' => 'Yaoundé (Gare Olembé)', 'pct' => 0],
+            ['name' => 'Obala (Péage Nord)', 'pct' => 15],
+            ['name' => 'Bafia (Centre)', 'pct' => 41],
+            ['name' => 'Ndikiniméki (Carrefour)', 'pct' => 59],
+            ['name' => 'Makénéné (Halte Principale)', 'pct' => 70],
+            ['name' => 'Bangangté (Poste Ouest)', 'pct' => 85],
+            ['name' => 'Bafoussam (Gare Centrale)', 'pct' => 100],
+        ],
+        'bafoussam->yaoundé' => [
+            ['name' => 'Bafoussam (Gare Centrale)', 'pct' => 0],
+            ['name' => 'Bangangté (Poste Ouest)', 'pct' => 15],
+            ['name' => 'Makénéné (Halte Principale)', 'pct' => 30],
+            ['name' => 'Ndikiniméki (Carrefour)', 'pct' => 41],
+            ['name' => 'Bafia (Centre)', 'pct' => 59],
+            ['name' => 'Obala (Péage Nord)', 'pct' => 85],
+            ['name' => 'Yaoundé (Gare Olembé)', 'pct' => 100],
+        ],
+        'douala->bafoussam' => [
+            ['name' => 'Douala (Gare Bonabéri)', 'pct' => 0],
+            ['name' => 'Mbanga (Carrefour)', 'pct' => 28],
+            ['name' => 'Nkongsamba (Mont Moungo)', 'pct' => 55],
+            ['name' => 'Mélong (Halte Chutes)', 'pct' => 67],
+            ['name' => 'Bafang (Centre)', 'pct' => 80],
+            ['name' => 'Bandjoun (Entrée Ouest)', 'pct' => 92],
+            ['name' => 'Bafoussam (Gare Centrale)', 'pct' => 100],
+        ],
+        'abidjan->yamoussoukro' => [
+            ['name' => 'Abidjan (Gare Adjamé)', 'pct' => 0],
+            ['name' => 'Attinguié (Péage Nord)', 'pct' => 14],
+            ['name' => 'Singrobo (Péage Central)', 'pct' => 55],
+            ['name' => 'Taabo (Carrefour)', 'pct' => 67],
+            ['name' => 'Toumodi (Halte Voyageurs)', 'pct' => 81],
+            ['name' => 'Yamoussoukro (Gare Morofé)', 'pct' => 100],
+        ],
+        'dakar->saint-louis' => [
+            ['name' => 'Dakar (Gare Beaux Maraîchers)', 'pct' => 0],
+            ['name' => 'Thiès (Halte Principale)', 'pct' => 27],
+            ['name' => 'Tivaouane (Centre)', 'pct' => 37],
+            ['name' => 'Kébémer (Carrefour)', 'pct' => 62],
+            ['name' => 'Louga (Gare)', 'pct' => 73],
+            ['name' => 'Saint-Louis (Gare Ndar)', 'pct' => 100],
+        ],
+    ];
+
+    if (isset($corridors[$key])) {
+        return $corridors[$key];
+    }
+
+    // Répartition logique pour tout autre trajet interurbain
+    return [
+        ['name' => $origin . ' (Gare de Départ)', 'pct' => 0],
+        ['name' => 'Sortie & Péage de ' . $origin, 'pct' => 18],
+        ['name' => 'Halte Mi-Parcours & Restauration', 'pct' => 48],
+        ['name' => 'Poste de Contrôle & Carrefour Régional', 'pct' => 74],
+        ['name' => 'Périphérie & Entrée de ' . $destination, 'pct' => 88],
+        ['name' => $destination . ' (Gare Terminus)', 'pct' => 100],
+    ];
+}
 
 function build_tracking_payload(int $tripId, ?string $reference = null): array
 {
@@ -253,6 +411,82 @@ function build_tracking_payload(int $tripId, ?string $reference = null): array
                     FROM trip_drivers td JOIN drivers d ON d.id = td.driver_id JOIN users u ON u.id = d.user_id
                     WHERE td.trip_id = ? ORDER BY td.position', [$tripId]);
 
+    // Calcul des étapes et localisation précise en temps réel
+    $rawWaypoints = get_corridor_waypoints($t['origin'], $t['destination'], $distanceKm);
+    $waypoints = [];
+    $startTs = strtotime(($t['actual_departed_at'] ?: $t['departs_at']) . ' UTC');
+    $endTs = strtotime($etaUtc . ' UTC');
+    $totalDurationSec = max(1800, $endTs - $startTs);
+
+    $currentCoveredKm = (int) round(($distanceKm * $progressPct) / 100);
+
+    foreach ($rawWaypoints as $idx => $rw) {
+        $wpKm = (int) round(($distanceKm * $rw['pct']) / 100);
+        $wpPct = (int) $rw['pct'];
+
+        if ($t['status'] === 'completed') {
+            $wpStatus = 'passed';
+        } elseif ($t['status'] !== 'departed') {
+            $wpStatus = ($idx === 0) ? 'current' : 'upcoming';
+        } else {
+            if ($progressPct >= $wpPct) {
+                $wpStatus = 'passed';
+            } else {
+                $wpStatus = 'upcoming';
+            }
+        }
+
+        $wpLat = ($origLat !== null && $destLat !== null) ? round($origLat + ($destLat - $origLat) * ($wpPct / 100), 6) : null;
+        $wpLng = ($origLng !== null && $destLng !== null) ? round($origLng + ($destLng - $origLng) * ($wpPct / 100), 6) : null;
+
+        $wpTimeTs = $startTs + (int) round($totalDurationSec * ($wpPct / 100));
+        $wpIsoTime = gmdate('Y-m-d H:i:s', $wpTimeTs);
+
+        $waypoints[] = [
+            'id' => 'wp_' . $idx,
+            'name' => $rw['name'],
+            'km' => $wpKm,
+            'pct' => $wpPct,
+            'lat' => $wpLat,
+            'lng' => $wpLng,
+            'status' => $wpStatus,
+            'estimated_time' => iso($wpIsoTime),
+            'reached_at' => ($wpStatus === 'passed') ? iso($wpIsoTime) : null,
+        ];
+    }
+
+    $currentWaypoint = null;
+    $nextWaypoint = null;
+    $currentLocationLabel = '';
+
+    if ($t['status'] === 'completed') {
+        $lastIdx = count($waypoints) - 1;
+        $waypoints[$lastIdx]['status'] = 'current';
+        $currentWaypoint = $waypoints[$lastIdx];
+        $currentLocationLabel = 'Arrivé à destination : ' . $t['destination'] . ' (Gare Terminus)';
+    } elseif ($t['status'] === 'departed' && !empty($waypoints)) {
+        $passedIndices = [];
+        foreach ($waypoints as $i => $w) {
+            if ($progressPct >= $w['pct']) $passedIndices[] = $i;
+        }
+        $currIdx = !empty($passedIndices) ? end($passedIndices) : 0;
+        $waypoints[$currIdx]['status'] = 'current';
+        $currentWaypoint = $waypoints[$currIdx];
+
+        if ($currIdx + 1 < count($waypoints)) {
+            $nextWaypoint = $waypoints[$currIdx + 1];
+            $kmLeftToNext = max(1, $nextWaypoint['km'] - $currentCoveredKm);
+            $currentLocationLabel = "À hauteur de {$currentWaypoint['name']} (km {$currentCoveredKm} / {$distanceKm})";
+        } else {
+            $currentLocationLabel = "Approche immédiate de {$currentWaypoint['name']}";
+        }
+    } else {
+        $waypoints[0]['status'] = 'current';
+        $currentWaypoint = $waypoints[0];
+        if (isset($waypoints[1])) $nextWaypoint = $waypoints[1];
+        $currentLocationLabel = "En attente au quai de départ : {$t['origin']}";
+    }
+
     return [
         'trip_id' => (int) $t['id'],
         'reference' => $reference,
@@ -287,6 +521,10 @@ function build_tracking_payload(int $tripId, ?string $reference = null): array
         'active_cause' => $activeCause,
         'drivers' => $drivers,
         'updates' => $updates,
+        'waypoints' => $waypoints,
+        'current_location_label' => $currentLocationLabel,
+        'current_waypoint' => $currentWaypoint,
+        'next_waypoint' => $nextWaypoint,
     ];
 }
 

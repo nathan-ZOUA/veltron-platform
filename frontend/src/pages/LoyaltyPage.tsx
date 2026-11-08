@@ -80,79 +80,92 @@ export default function LoyaltyPage() {
   const totalPoints = data?.agencies.reduce((s, a) => s + a.balance, 0) ?? 0;
 
   return (
-    <>
+    <div className="loyalty-page-wrapper">
       <section
         className="service-hero photo-bg"
         style={{ "--photo-custom": 'url("/media/loyalty.jpg")' } as React.CSSProperties}
       >
         <div className="photo-bg__image photo-bg__image--custom" />
         <div className="container service-hero__inner">
-          <span className="badge">Programme Fidélité Annuel</span>
+          <span className="badge">⭐ Programme Fidélité Passagers Pan-Africain</span>
           <h1 className="display display-xl">Gagnez des points à chaque voyage</h1>
           <p className="lead">
-            Chaque billet payé avec votre compte vous rapporte automatiquement des points dans l’agence choisie.
-            Votre compteur est actualisé chaque année civile et débloque des récompenses propres à chaque compagnie.
+            Chaque billet payé avec votre compte vous rapporte automatiquement des points fidélité auprès de votre agence.
+            Votre solde débloque des billets gratuits, surclassements VIP, réductions et franchises bagages.
           </p>
         </div>
       </section>
 
       <div className="container page">
         {!user ? (
-          <div className="card form-grid">
+          <div className="card loyalty-login-prompt">
             <h2 className="subheading">Connectez-vous pour consulter vos points & récompenses</h2>
             <p className="muted">
-              Créez un compte passager ou connectez-vous (astuce : essayez le compte démo <strong>Amina</strong> qui
-              possède déjà <strong>40 points</strong> chez Équateur Voyages).
+              Créez un compte passager ou connectez-vous pour cumuler vos points automatiquement à chaque voyage.
             </p>
             <div className="chips">
               <Link to="/passager/connexion?next=/passager/fidelite" className="btn btn--lg">
                 Se connecter / S’inscrire
               </Link>
               <Link to="/passager/agences" className="btn btn--ghost btn--lg">
-                Découvrir les agences
+                Découvrir les agences partenaires
               </Link>
             </div>
           </div>
         ) : !data ? (
-          <div className="skeleton" style={{ height: 260 }} />
+          <div className="skeleton" style={{ height: 280, borderRadius: 16 }} />
         ) : (
           <>
-            <div className="kpi-grid">
+            {/* KPI METRICS CARDS */}
+            <div className="kpi-grid loyalty-kpi-grid">
               <div className="card kpi-card kpi-card--accent">
-                <span className="muted">Solde cumulé ({data.year})</span>
+                <span className="muted">Solde cumulé actif ({data.year})</span>
                 <strong className="display kpi-card__value mono">{totalPoints} pts</strong>
                 <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                  Répartis par agence partenaire
+                  Cumulé auprès de vos agences habituelles
                 </span>
               </div>
               <div className="card kpi-card">
-                <span className="muted">Actualisation annuelle</span>
+                <span className="muted">Remise à niveau annuelle</span>
                 <strong className="display kpi-card__value mono">31 déc. {data.year}</strong>
                 <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                  Remise à zéro chaque 1er janvier
+                  Conservez vos privilèges tout au long de l'année
                 </span>
               </div>
               <div className="card kpi-card">
-                <span className="muted">Bons cadeaux obtenus</span>
+                <span className="muted">Bons cadeaux actifs</span>
                 <strong className="display kpi-card__value mono">{data.vouchers.length}</strong>
                 <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                  Présentez le code au guichet
+                  Utilisables en gare ou sur votre réservation
                 </span>
               </div>
             </div>
 
             {message && (
-              <div className="demo-note" role="status">
+              <motion.div
+                className="demo-note"
+                role="status"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                style={{ background: "rgba(16, 185, 129, 0.12)", border: "1.5px solid #10b981", color: "#10b981", borderRadius: 12, padding: "14px 18px" }}
+              >
                 <strong>{message}</strong>
-              </div>
+              </motion.div>
             )}
-            {error && <p className="error">{error}</p>}
+            {error && <p className="error" role="alert">{error}</p>}
 
-            <section>
-              <h2 className="subheading" style={{ marginBottom: 16 }}>
-                Vos points et récompenses par agence ({data.year})
-              </h2>
-              <div className="agency-grid">
+            {/* GRILLE PAR AGENCE PARTENAIRE */}
+            <section className="loyalty-agencies-section">
+              <div className="loyalty-section-header">
+                <h2 className="subheading" style={{ margin: 0 }}>
+                  Vos points et récompenses par agence ({data.year})
+                </h2>
+                <span className="muted" style={{ fontSize: "var(--text-sm)" }}>
+                  {data.agencies.length} agence(s) dans votre réseau fidélité
+                </span>
+              </div>
+
+              <div className="loyalty-agencies-grid">
                 {data.agencies.map((ag, idx) => {
                   const nextReward = ag.rewards.find((r) => r.points_required > ag.balance) ?? ag.rewards[ag.rewards.length - 1];
                   const target = nextReward ? nextReward.points_required : 100;
@@ -162,99 +175,113 @@ export default function LoyaltyPage() {
                     <motion.div
                       key={ag.id}
                       style={agencyStyle(ag.primary_color)}
-                      className="card form-grid"
-                      initial={{ opacity: 0, y: 20 }}
+                      className="card loyalty-agency-card"
+                      initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: idx * 0.06 }}
+                      transition={{ delay: idx * 0.05 }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div>
-                          <h3 style={{ margin: 0 }}>{ag.name}</h3>
-                          <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                            +{ag.points_per_trip} pts par trajet · {ag.trips_this_year} voyage(s) en {data.year}
+                      <div className="loyalty-agency-card__header">
+                        <div className="loyalty-agency-info">
+                          <h3 className="loyalty-agency-name">{ag.name}</h3>
+                          <span className="loyalty-agency-meta">
+                            +{ag.points_per_trip} pts / trajet · {ag.trips_this_year} voyage(s) cette année
                           </span>
                         </div>
-                        <span className="badge mono" style={{ fontSize: "var(--text-base)", fontWeight: 800 }}>
-                          {ag.balance} pts
-                        </span>
-                      </div>
-
-                      <div>
-                        <div className="progress">
-                          <div className="progress__bar" style={{ width: `${pct}%` }} />
+                        <div className="loyalty-points-badge mono">
+                          {ag.balance} <span style={{ fontSize: "0.75rem", fontWeight: 600 }}>pts</span>
                         </div>
-                        {nextReward && (
-                          <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                            {ag.balance >= nextReward.points_required
-                              ? "Palier atteint — échangez vos points !"
-                              : `Prochain palier : ${nextReward.points_required} pts (${nextReward.title})`}
-                          </span>
-                        )}
                       </div>
 
-                      <ul className="call-list">
-                        {ag.rewards.map((rw) => {
-                          const canRedeem = ag.balance >= rw.points_required;
-                          return (
-                            <li key={rw.id} className="call-row">
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                                <div>
-                                  <strong>{rw.title}</strong>
+                      {/* Barre de progression palier */}
+                      <div className="loyalty-progress-container">
+                        <div className="progress loyalty-progress-bar">
+                          <div className="progress__bar" style={{ width: `${pct}%`, background: ag.primary_color || "var(--accent)" }} />
+                        </div>
+                        <div className="loyalty-tier-hint">
+                          {nextReward ? (
+                            ag.balance >= nextReward.points_required ? (
+                              <span className="badge badge--ok" style={{ fontSize: "0.72rem" }}>Palier atteint — débloquez votre bon ci-dessous !</span>
+                            ) : (
+                              <span>Prochain palier : <strong>{nextReward.points_required} pts</strong> ({nextReward.title})</span>
+                            )
+                          ) : (
+                            <span>Points cumulables sans limite</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Liste des récompenses disponibles */}
+                      <div className="loyalty-rewards-box">
+                        <span className="loyalty-rewards-title">Catalogue des Récompenses</span>
+                        <div className="loyalty-rewards-list">
+                          {ag.rewards.map((rw) => {
+                            const canRedeem = ag.balance >= rw.points_required;
+                            return (
+                              <div key={rw.id} className={`loyalty-reward-row ${canRedeem ? "can-redeem" : ""}`}>
+                                <div className="loyalty-reward-details">
+                                  <strong className="loyalty-reward-name">{rw.title}</strong>
                                   {rw.description && (
-                                    <div className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                                      {rw.description}
-                                    </div>
+                                    <span className="loyalty-reward-desc">{rw.description}</span>
                                   )}
                                 </div>
                                 <button
                                   type="button"
-                                  className={canRedeem ? "btn" : "chip"}
+                                  className={`btn loyalty-redeem-btn ${canRedeem ? "btn--primary" : "btn--ghost"}`}
                                   disabled={!canRedeem || busyId === rw.id}
                                   onClick={() => redeem(rw.id)}
                                 >
-                                  {canRedeem ? `Échanger (${rw.points_required} pts)` : `${rw.points_required} pts`}
+                                  {canRedeem ? `🎁 Échanger (${rw.points_required} pts)` : `${rw.points_required} pts`}
                                 </button>
                               </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
+                            );
+                          })}
+                        </div>
+                      </div>
 
-                      <Link to={`/passager/a/${ag.slug}`} className="link">
-                        Réserver chez {ag.name} pour gagner +{ag.points_per_trip} pts →
-                      </Link>
+                      <div className="loyalty-agency-card__footer">
+                        <Link to={`/passager/a/${ag.slug}`} className="loyalty-book-link">
+                          Réserver chez {ag.name} pour gagner +{ag.points_per_trip} pts →
+                        </Link>
+                      </div>
                     </motion.div>
                   );
                 })}
               </div>
             </section>
 
+            {/* BONS CADEAUX & VOUCHERS DÉJÀ OBTENUS */}
             {data.vouchers.length > 0 && (
-              <section className="card">
-                <h2 className="subheading">Mes bons de récompense actifs</h2>
-                <ul className="call-list">
+              <section className="card loyalty-vouchers-card" style={{ marginTop: 24 }}>
+                <div className="loyalty-section-header">
+                  <h2 className="subheading" style={{ margin: 0 }}>
+                    🎟️ Mes bons de récompense débloqués ({data.vouchers.length})
+                  </h2>
+                  <p className="muted" style={{ margin: "4px 0 0", fontSize: "var(--text-xs)" }}>
+                    Présentez ce code au guichet de l'agence ou appliquez-le lors de votre réservation pour bénéficier de votre avantage.
+                  </p>
+                </div>
+
+                <div className="loyalty-vouchers-grid">
                   {data.vouchers.map((v) => (
-                    <li key={v.id} className="call-row" style={agencyStyle(v.primary_color)}>
-                      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                        <strong>
-                          {v.agency_name} — {v.title}
-                        </strong>
-                        <span className="badge mono" style={{ fontWeight: 800 }}>
-                          {v.code}
+                    <div key={v.id} className="loyalty-voucher-item" style={agencyStyle(v.primary_color)}>
+                      <div className="voucher-item__left">
+                        <span className="voucher-agency-name">{v.agency_name}</span>
+                        <strong className="voucher-title">{v.title}</strong>
+                        <span className="voucher-meta">
+                          Statut : {v.status === "issued" ? "🟢 Valide — Actif en gare" : v.status}
                         </span>
                       </div>
-                      <span className="muted" style={{ fontSize: "var(--text-xs)" }}>
-                        Statut : {v.status === "issued" ? "Valide — à présenter au guichet" : v.status}
-                      </span>
-                    </li>
+                      <div className="voucher-item__right">
+                        <span className="voucher-code-chip mono">{v.code}</span>
+                      </div>
+                    </div>
                   ))}
-                </ul>
+                </div>
               </section>
             )}
           </>
         )}
       </div>
-    </>
+    </div>
   );
 }
-

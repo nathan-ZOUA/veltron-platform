@@ -250,8 +250,10 @@ route('POST', '/api/agencies/register', function () {
         );
     }
 
+    $tenantDb = function_exists('provision_agency_tenant_database') ? provision_agency_tenant_database((int)$agencyId, $publicCode) : ['db_identifier' => 'veltron_tenant_' . strtolower(str_replace('-', '_', $publicCode)), 'isolation_mode' => 'isolated_partition', 'integrity_status' => 'healthy'];
     json_out([
         'public_code' => $publicCode,
+        'tenant_database' => $tenantDb,
         'slug' => $slug,
         'status' => $verdict['agency_status'],
         'verification_status' => $verdict['verification_status'],

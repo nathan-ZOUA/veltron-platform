@@ -22,6 +22,63 @@ export const en: Translation = {
     loyalty: "Loyalty",
   },
 
+  search: {
+    tabTrips: "Search for Trips",
+    tabAgencies: "Find an Agency",
+    origin: "Departure point",
+    originPlaceholder: "Departure city (e.g. Douala)",
+    destination: "Destination",
+    destinationPlaceholder: "Where are you going? (e.g. Yaoundé)",
+    date: "Travel Date",
+    today: "Today",
+    tomorrow: "Tomorrow",
+    btnSearchTrips: "Search Trips",
+    agencyPlaceholder: "Agency name, city or country (e.g. Équateur, Baobab...)",
+    btnSearchAgencies: "Find Agency",
+    swap: "Swap departure and destination",
+    resultsTitle: "available departure(s)",
+    noResults: "No scheduled departures found on this route for this date.",
+    askAnge: "Ask AI Agent Ange for assistance ✨",
+    bookSeat: "Choose Seat & Book",
+    freeSeats: "free seats",
+    allAgencies: "Browse all agencies",
+  },
+
+  cards: {
+    sectionTitle: "All your traveler services in one click",
+    sectionNote: "Choose an action below: every service connects directly to verified companies on VELTRON.",
+    intercity: {
+      tag: "Intercity Trips",
+      title: "Book a bus ticket",
+      text: "Find available routes, choose your seat on the interactive bus layout and receive your secure QR code ticket.",
+      cta: "Find a trip",
+    },
+    rental: {
+      tag: "Rental & Charters",
+      title: "Rent a coach with driver",
+      text: "Excursions, seminars, weddings or business travel: request an instant quote from verified partner operators.",
+      cta: "Request a quote",
+    },
+    sales: {
+      tag: "Bus Marketplace",
+      title: "Buy a certified bus",
+      text: "Browse listings of new and inspected pre-owned buses certified by VELTRON network professionals.",
+      cta: "View listings",
+    },
+    tracking: {
+      tag: "Live Telemetry",
+      title: "Live GPS & Traffic tracking",
+      text: "Locate your bus in real time on the map, monitor its speed in km/h and receive live traffic alerts.",
+      cta: "Start tracking",
+    },
+    loyalty: {
+      tag: "Loyalty Program",
+      title: "Traveler Points & Rewards",
+      text: "Earn VELTRON points on every journey to unlock discounts on your upcoming bus trips.",
+      cta: "View my points",
+    },
+  },
+
   common: {
     simulated: "SIMULATED",
     demoData: "Demo data",

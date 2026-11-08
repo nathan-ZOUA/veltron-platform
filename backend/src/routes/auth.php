@@ -370,7 +370,7 @@ route('GET', '/api/agency/join-request/status', function () {
 // ---------- 3. ESPACE PROPRIÉTAIRE / SUPERVISION VELTRON ----------
 route('POST', '/api/platform/auth/login', function () {
     $in = input();
-    $email = strtolower(trim((string) ($in['email'] ?? '')));
+    $email = strtolower(trim((string) ($in['email'] ?? $in['identifier'] ?? '')));
     $user = check_user_credentials($email, (string) ($in['password'] ?? ''));
     if ($user['platform_role'] === 'none') fail(403, 'forbidden', 'Accès réservé au propriétaire VELTRON.');
     $token = session_create((int) $user['id'], 'platform');

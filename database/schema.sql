@@ -25,6 +25,7 @@ CREATE TABLE countries (
   iso2             CHAR(2) NOT NULL UNIQUE,
   name_fr          VARCHAR(80) NOT NULL,
   name_en          VARCHAR(80) NOT NULL,
+  region           VARCHAR(60) NOT NULL DEFAULT 'Afrique Centrale',
   default_currency CHAR(3) NOT NULL,
   phone_prefix     VARCHAR(8) NOT NULL,
   FOREIGN KEY (default_currency) REFERENCES currencies(code)
@@ -127,15 +128,20 @@ CREATE TABLE refund_tiers (
 --   staff      = membre du personnel
 --   accountant = comptable (recettes, remboursements)
 CREATE TABLE agency_staff (
-  id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  agency_id     INT UNSIGNED NOT NULL,
-  user_id       BIGINT UNSIGNED NOT NULL,
-  role          ENUM('owner','manager','secretary','driver','staff','accountant') NOT NULL,
-  job_title     VARCHAR(80) NULL,
-  status        ENUM('active','disabled') NOT NULL DEFAULT 'active',
-  invited_by    BIGINT UNSIGNED NULL,
-  last_login_at DATETIME NULL,
-  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  agency_id         INT UNSIGNED NOT NULL,
+  user_id           BIGINT UNSIGNED NOT NULL,
+  role              ENUM('owner','manager','secretary','driver','staff','accountant') NOT NULL,
+  job_title         VARCHAR(80) NULL,
+  dashboard_modules JSON NULL,
+  matricule         VARCHAR(50) NULL,
+  custom_role       VARCHAR(100) NULL,
+  avatar_url        TEXT NULL,
+  status            ENUM('active','disabled') NOT NULL DEFAULT 'active',
+  invited_by        BIGINT UNSIGNED NULL,
+  last_login_at     DATETIME NULL,
+  resigned_at       DATETIME NULL,
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_staff (agency_id, user_id),
   FOREIGN KEY (agency_id) REFERENCES agencies(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id)   REFERENCES users(id)
@@ -657,7 +663,7 @@ CREATE TABLE chat_messages (
   id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   group_id       BIGINT UNSIGNED NOT NULL,
   sender_user_id BIGINT UNSIGNED NOT NULL,
-  kind           ENUM('text','system') NOT NULL DEFAULT 'text',
+  kind           VARCHAR(32) NOT NULL DEFAULT 'text',
   key_version    INT UNSIGNED NULL,
   iv             VARCHAR(32) NULL,
   ciphertext     MEDIUMTEXT NOT NULL,              -- texte du message visible par toute l'équipe de l'agence
@@ -690,4 +696,168 @@ CREATE TABLE audit_logs (
   meta          JSON NULL,
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_audit (agency_id, created_at)
+) ENGINE=InnoDB;
+
+-- ---------- Journaux de caisse par départ (Mémorisés en DB & Contrôle anti-fraude) ----------
+CREATE TABLE IF NOT EXISTS trip_cash_journals (
+  id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  agency_id         BIGINT UNSIGNED NOT NULL,
+  trip_id           BIGINT UNSIGNED NOT NULL,
+  closed_by_user_id BIGINT UNSIGNED NULL,
+  status            ENUM('open', 'closed', 'verified') NOT NULL DEFAULT 'open',
+  total_tickets     INT NOT NULL DEFAULT 0,
+  total_amount      INT NOT NULL DEFAULT 0,
+  cash_amount       INT NOT NULL DEFAULT 0,
+  momo_amount       INT NOT NULL DEFAULT 0,
+  card_amount       INT NOT NULL DEFAULT 0,
+  cash_counted      INT NOT NULL DEFAULT 0,
+  cash_difference   INT NOT NULL DEFAULT 0,
+  notes             TEXT NULL,
+  audit_hash        VARCHAR(64) NULL,
+  closed_at         DATETIME NULL,
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_agency_trip (agency_id, trip_id),
+  INDEX idx_agency_closed (agency_id, closed_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- VELTRON v3 INTERNATIONAL – Auto-Provisionnement Multi-Tenant & Agent IA ANGE
+-- =============================================================================
+
+-- Registre des bases de données / partitions isolées créées automatiquement par agence
+CREATE TABLE IF NOT EXISTS agency_tenant_databases (
+  id                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  agency_id             INT UNSIGNED NOT NULL UNIQUE,
+  public_code           CHAR(9) NOT NULL UNIQUE,
+  db_identifier         VARCHAR(90) NOT NULL UNIQUE,      -- ex: veltron_tenant_ag_eqt001
+  isolation_mode        ENUM('dedicated_schema','isolated_partition') NOT NULL DEFAULT 'isolated_partition',
+  encryption_salt       CHAR(64) NOT NULL,                -- sel cryptographique SHA-256 propre à l'agence
+  tables_provisioned    SMALLINT UNSIGNED NOT NULL DEFAULT 18,
+  integrity_status      ENUM('healthy','healing','degraded') NOT NULL DEFAULT 'healthy',
+  auto_backup_enabled   TINYINT(1) NOT NULL DEFAULT 1,
+  last_health_check_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (agency_id) REFERENCES agencies(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Confirmations de sécurité pour les tâches complexes demandées à l'Agent IA ANGE
+CREATE TABLE IF NOT EXISTS ai_ange_confirmations (
+  id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  confirmation_code VARCHAR(36) NOT NULL UNIQUE,
+  realm             ENUM('agency','platform') NOT NULL DEFAULT 'agency',
+  agency_id         INT UNSIGNED NULL,
+  user_id           BIGINT UNSIGNED NOT NULL,
+  role              VARCHAR(40) NOT NULL,
+  task_type         VARCHAR(60) NOT NULL,
+  task_title        VARCHAR(160) NOT NULL,
+  task_summary      TEXT NOT NULL,
+  payload_json      JSON NOT NULL,
+  status            ENUM('pending','confirmed','cancelled','expired') NOT NULL DEFAULT 'pending',
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  executed_at       DATETIME NULL,
+  KEY idx_ange_conf_user (user_id, status)
+) ENGINE=InnoDB;
+
+-- =============================================================================
+-- VELTRON v4 – HAUTE CAPACITÉ (25M CONNEXIONS), MÉMOIRE IA ANGE & INDEX RAPIDES
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS ai_ange_memory (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  realm       VARCHAR(20) NOT NULL DEFAULT 'passenger',
+  actor_key   VARCHAR(120) NOT NULL,               -- device_id ou user_id
+  fact_key    VARCHAR(80) NOT NULL,
+  fact_value  TEXT NOT NULL,
+  updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_ange_mem (realm, actor_key, fact_key)
+) ENGINE=InnoDB;
+
+-- Index composites couvrants pour supporter des millions de lectures simultanées sans verrouillage
+CREATE INDEX idx_trips_high_concurrency ON trips (status, agency_id, route_id, departs_at);
+CREATE INDEX idx_tickets_high_concurrency ON tickets (trip_id, status, seat_id);
+
+-- =============================================================================
+-- VELTRON v5 – RÉCUPÉRATION D'ACCÈS (AGENCE & PERSONNEL) & COFFRE FURTIF CRÉATEUR
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS access_recovery_requests (
+  id                BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  recovery_type     ENUM('staff_self_reset','agency_owner_sos') NOT NULL,
+  agency_code       VARCHAR(20) NOT NULL,
+  target_email      VARCHAR(190) NULL,
+  target_phone      VARCHAR(30) NULL,
+  delivery_channel  ENUM('email','sms','founder_override') NOT NULL DEFAULT 'email',
+  otp_hash          VARCHAR(128) NULL,
+  legal_id_proof    VARCHAR(80) NULL,
+  status            ENUM('pending','otp_sent','resolved','rejected') NOT NULL DEFAULT 'pending',
+  resolved_by_owner TINYINT(1) NOT NULL DEFAULT 0,
+  temp_reset_token  VARCHAR(80) NULL,
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at       DATETIME NULL,
+  KEY idx_recovery_lookup (agency_code, status)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS creator_vault_keys (
+  id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  owner_email       VARCHAR(190) NOT NULL UNIQUE,
+  stealth_passkey   VARCHAR(255) NOT NULL,
+  recovery_pin      VARCHAR(20) NOT NULL DEFAULT '237000',
+  updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- =============================================================================
+-- VELTRON v6 – TRANSFERT DE BILLETS, APPELS/CHAT CRYPTÉS PASSAGER-AGENCE,
+-- VALIDATION RH & PLAINTES DE VIOLATION DE DROIT, DÉLÉGATION VACANCES/DÉPARTS
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS ticket_transfers (
+  id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  ticket_code         VARCHAR(20) NOT NULL,
+  sender_name         VARCHAR(140) NOT NULL,
+  recipient_username  VARCHAR(140) NOT NULL,
+  recipient_verify    VARCHAR(80) NOT NULL, -- CNI ou Téléphone du destinataire
+  status              ENUM('transferred','claimed') NOT NULL DEFAULT 'transferred',
+  transferred_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_transfer_recipient (recipient_username, recipient_verify)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS staff_join_requests (
+  id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  agency_code         VARCHAR(20) NOT NULL,
+  full_name           VARCHAR(140) NOT NULL,
+  email               VARCHAR(190) NOT NULL,
+  phone               VARCHAR(30) NULL,
+  requested_role      VARCHAR(60) NOT NULL,
+  avatar_url          VARCHAR(255) NULL,
+  email_otp_5         CHAR(5) NOT NULL,
+  email_verified      TINYINT(1) NOT NULL DEFAULT 0,
+  applicant_message   TEXT NULL,
+  screenshot_evidence LONGTEXT NULL,
+  admin_decision      ENUM('pending','accepted','rejected','reported_violation') NOT NULL DEFAULT 'pending',
+  created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  decided_at          DATETIME NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS legal_violation_complaints (
+  id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  complaint_ref       VARCHAR(30) NOT NULL UNIQUE,
+  agency_code         VARCHAR(20) NOT NULL,
+  suspect_name        VARCHAR(140) NOT NULL,
+  suspect_email       VARCHAR(190) NOT NULL,
+  suspect_ip          VARCHAR(64) NOT NULL,
+  targeted_role       VARCHAR(60) NOT NULL,
+  captured_text       TEXT NOT NULL,
+  screenshot_data     LONGTEXT NULL,
+  created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS staff_delegations (
+  id                  BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  agency_code         VARCHAR(20) NOT NULL,
+  from_matricule      VARCHAR(32) NOT NULL,
+  reason              ENUM('vacation','left_agency','admin_handover') NOT NULL,
+  matricule_disabled  TINYINT(1) NOT NULL DEFAULT 1,
+  delegated_to        VARCHAR(140) NOT NULL, -- Matricule existant ou Nouveau membre
+  created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;

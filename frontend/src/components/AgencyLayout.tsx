@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
 import Footer from "./Footer";
+import AngeAssistant from "./AngeAssistant";
 import { useAuth } from "../core/auth";
 import { agencyStyle } from "../core/format";
 
@@ -15,10 +16,10 @@ const ROLE_LABELS: Record<string, string> = {
   accountant: "Comptable",
 };
 
-// Interface dédiée EXCLUSIVEMENT aux agences (totalement séparée de l'espace passager)
 export default function AgencyLayout() {
   const { agencySession, logoutAgency } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [angeOpen, setAngeOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -64,6 +65,9 @@ export default function AgencyLayout() {
                 <NavLink to="/agence/connexion" className={({ isActive }) => (isActive ? "nav__link is-active" : "nav__link")}>
                   J'ai une agence
                 </NavLink>
+                <NavLink to="/agence/rejoindre" className={({ isActive }) => (isActive ? "nav__link is-active" : "nav__link")}>
+                  Nouveau personnel
+                </NavLink>
               </>
             ) : (
               <div className="security-chips-group">
@@ -73,8 +77,8 @@ export default function AgencyLayout() {
                 <span className="security-chip security-chip--role">
                   {ROLE_LABELS[agencySession.role] ?? agencySession.role} · {agencySession.user.first_name}
                 </span>
-                <span className="security-chip security-chip--e2ee" title="Session d'agence strictement isolée — échanges d'équipe directs">
-                  🛡️ Agence Isolée
+                <span className="security-chip security-chip--e2ee" title="Base de données d'agence auto-provisionnée et strictement isolée">
+                  🗄️ DB Isolée Active
                 </span>
               </div>
             )}
@@ -111,8 +115,8 @@ export default function AgencyLayout() {
         <Outlet />
       </main>
 
+      <AngeAssistant realm="agency" openExternal={angeOpen} onCloseExternal={() => setAngeOpen(false)} />
       <Footer />
     </div>
   );
 }
-
